@@ -1,0 +1,4 @@
+paths = ["./fpvm"]
+
+[term]
+color = "always"

@@ -1,0 +1,29 @@
+[package]
+name = "kailua-host"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+alloy-primitives.workspace = true
+alloy-provider.workspace = true
+anyhow.workspace = true
+bincode.workspace = true
+clap.workspace = true
+
+kailua-build.workspace = true
+kailua-client.workspace = true
+kailua-common.workspace = true
+
+kona-client.workspace = true
+kona-host.workspace = true
+kona-preimage.workspace = true
+kona-primitives.workspace = true
+
+risc0-zkvm = { workspace = true, features = ["prove"] }
+
+serde.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+tokio.workspace = true
+tracing-subscriber.workspace = true
+tracing.workspace = true
