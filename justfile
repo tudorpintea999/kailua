@@ -45,44 +45,15 @@ prove block_number l1_rpc l1_beacon_rpc l2_rpc rollup_node_rpc data verbosity:
     --data-dir {{data}} \
     {{verbosity}}
 
-# Run the client program natively with the host program attached.
-prove-local block_number data verbosity:
+prove-devnet block_number data verbosity:
   #!/usr/bin/env bash
 
-  L1_NODE_ADDRESS="http://localhost:8545"
-  L1_BEACON_ADDRESS="http://localhost:5052"
-  L2_NODE_ADDRESS="http://localhost:9545"
-  OP_NODE_ADDRESS="http://localhost:7545"
+  just prove {{block_number}} http://localhost:8545 http://localhost:5052 http://localhost:9545 http://localhost:7545 {{data}} {{verbosity}}
 
-  L2_BLOCK_NUMBER={{block_number}}
-  echo "Fetching configuration for block #$L2_BLOCK_NUMBER..."
+prove-kurtosis block_number data verbosity:
+  #!/usr/bin/env bash
 
-  # Get output root for block
-  L2_CLAIM=$(cast rpc --rpc-url $OP_NODE_ADDRESS "optimism_outputAtBlock" $(cast 2h $L2_BLOCK_NUMBER) | jq -r .outputRoot)
-
-  # Get the info for the previous block
-  L2_OUTPUT_ROOT=$(cast rpc --rpc-url $OP_NODE_ADDRESS "optimism_outputAtBlock" $(cast 2h $((L2_BLOCK_NUMBER - 1))) | jq -r .outputRoot)
-  L2_HEAD=$(cast block --rpc-url $L2_NODE_ADDRESS $((L2_BLOCK_NUMBER - 1)) -j | jq -r .hash)
-  L1_ORIGIN_NUM=$(cast rpc --rpc-url $OP_NODE_ADDRESS "optimism_outputAtBlock" $(cast 2h $((L2_BLOCK_NUMBER - 1))) | jq -r .blockRef.l1origin.number)
-  L1_HEAD=$(cast block --rpc-url $L1_NODE_ADDRESS $((L1_ORIGIN_NUM + 50)) -j | jq -r .hash)
-  L2_CHAIN_ID=$(cast chain-id --rpc-url $L2_NODE_ADDRESS)
-
-  echo "Running host program with zk client program..."
-  ./target/debug/kailua-host \
-    --l1-head $L1_HEAD \
-    --l2-head $L2_HEAD \
-    --l2-claim $L2_CLAIM \
-    --l2-output-root $L2_OUTPUT_ROOT \
-    --l2-block-number $L2_BLOCK_NUMBER \
-    --l2-chain-id $L2_CHAIN_ID \
-    --l1-node-address $L1_NODE_ADDRESS \
-    --l1-beacon-address $L1_BEACON_ADDRESS \
-    --l2-node-address $L2_NODE_ADDRESS \
-    --op-node-address $OP_NODE_ADDRESS \
-    --rollup-config-path ./bin/host/devnet-rollup.json \
-    --exec ./target/debug/kailua-client \
-    --data-dir {{data}} \
-    {{verbosity}}
+  just prove {{block_number}} http://127.0.0.1:54810 http://127.0.0.1:54860 http://127.0.0.1:56824 http://127.0.0.1:56916 {{data}} {{verbosity}}
 
 # Show the input args for proving
 query block_number l1_rpc l1_beacon_rpc l2_rpc rollup_node_rpc:
