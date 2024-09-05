@@ -35,7 +35,19 @@ async fn main() -> anyhow::Result<()> {
     {
         info!("Fetching rollup config from nodes.");
         let tmp_cfg_file = tmp_dir.path().join("rollup-config.json");
-        fetch_rollup_config(&cfg, &tmp_cfg_file).await?;
+        fetch_rollup_config(
+            cfg.op_node_address
+                .clone()
+                .expect("Missing op-node-address")
+                .as_str(),
+            cfg.kona
+                .l2_node_address
+                .clone()
+                .expect("Missing l2-node-address")
+                .as_str(),
+            Some(&tmp_cfg_file),
+        )
+        .await?;
         cfg.kona.rollup_config_path = Some(tmp_cfg_file);
         cfg.kona
             .read_rollup_config()

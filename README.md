@@ -4,7 +4,7 @@ Kailua uses the RISC-Zero zkVM to verifiably run Optimism's [Kona][kona] and sec
 
 ## Development Status
 
-`kailua` as well as `kona` are still in active development and are not suitable for production usage.
+`kailua` as well as `kona` are still in active development and are NOT suitable for production usage.
 
 ## Fraud/Validity Proofs
 
@@ -12,15 +12,43 @@ Kailua enables rollup operators to add a new `FaultProofGame` contract, compatib
 
 `FaultProofGame` can be configured to either pessimistically require a proof before any game can be resolved, or optimistically allow outputs to be accepted after a timeout if no fraud proof is published against it.
 
+## Prerequisites
+1. [rust](https://www.rust-lang.org/tools/install)
+2. [just](https://just.systems/man/en/chapter_1.html)
+3. [kurtosis](https://docs.kurtosis.com/install)
+4. [foundry](https://book.getfoundry.sh/getting-started/installation)
+
 ## Usage
 
-1. Hardcode your `RollupConfig` into the `fpvm` binary and perform a reproducible docker build.
-2. Deploy a `FaultProofGame` contract with your `fpvm` and `fpvm-chained` image ids.
-3. Integrate `FaultProofGame` into your rollup's `DisputeGameFactory` using the following methods:
+1. Build `kailua` while in the cloned repository root using `just build`
+2. `just devnet-up`
+   * Starts a local OP Stack devnet using kurtosis.
+   * Note down the below local endpoints from the final kurtosis output
+   ```text
+   ================================ User Services ================================
+   Name                      Ports                                       Service
+   el-1-geth-lighthouse      rpc: 8545/tcp -> 127.0.0.1:<PORT>           L1_NODE
+   cl-1-lighthouse-geth      http: 4000/tcp -> http://127.0.0.1:<PORT>   L1_RPC
+   op-el-1-op-geth-op-node   rpc: 8545/tcp -> http://127.0.0.1:<PORT>    L2_NODE
+   op-cl-1-op-node-op-geth   http: 8547/tcp -> http://127.0.0.1:<PORT>   L2_RPC 
+   ```
+3. `just devnet-deploy <L1_NODE> <L1_RPC> <L2_NODE> <L2_RPC>`
+   * Deploys a base `FaultProofGame` contract configured with your `RollupConfig` and guest image ids.
+   * Use the local endpoints from your terminal's kurtosis output.
+
+
+[//]: # (1. Hardcode your `RollupConfig` into the `fpvm` binary and perform a reproducible docker build.)
+3. Deploy a cloneable `FaultProofGame` contract with your `fpvm` and `fpvm-chained` image ids.
+
+4. Integrate `FaultProofGame` into your rollup's `DisputeGameFactory` using the following methods:
    1. Call `setInitBond` to set the required bond for proposing outputs using the `FaultProofGame`. 
    2. Call `setImplementation` to set the address of the `FaultProofGame` contract you've deployed.
-4. Update the `AnchorStateRegistry` to copy the last confirmed output from another game.
-5. Invoke Kailua to generate proofs.
+5. Update the `AnchorStateRegistry` to copy the last confirmed output from another game.
+6. Invoke Kailua to generate proofs.
+
+## TODO:
+1. Embed immutable hash of `RollupConfig` in `FaultProofGame` and `fpvm`.
+2. 
 
 ## Questions, Feedback, and Collaborations
 

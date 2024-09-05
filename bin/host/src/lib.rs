@@ -16,16 +16,24 @@ use alloy_provider::{Provider, ProviderBuilder};
 use clap::Parser;
 use kailua_build::{KAILUA_FPVM_CHAINED_ELF, KAILUA_FPVM_ID};
 use kailua_common::BasicBootInfo;
+use kona_primitives::RollupConfig;
 use risc0_zkvm::{default_prover, AssumptionReceipt, ExecutorEnv, ProverOpts, Receipt};
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use tokio::fs;
 
+// #[derive(clap::Parser, Debug, Clone)]
+// #[command(name = "kailua")]
+// #[command(bin_name = "kailua")]
+// pub enum KailuaCli {
+//     Prove(KailuaHostCli)
+// }
+
 /// The host binary CLI application arguments.
 #[derive(Parser, Serialize, Clone, Debug)]
 pub struct KailuaHostCli {
-    #[command(flatten)]
+    #[clap(flatten)]
     pub kona: kona_host::HostCli,
 
     /// Address of OP-NODE endpoint to use
@@ -62,19 +70,12 @@ pub fn aggregate_client_proofs(
 }
 
 pub async fn fetch_rollup_config(
-    cfg: &KailuaHostCli,
-    json_file_path: &PathBuf,
-) -> anyhow::Result<()> {
-    let op_node_provider =
-        ProviderBuilder::new().on_http(cfg.op_node_address.clone().unwrap().as_str().try_into()?);
-    let l2_node_provider = ProviderBuilder::new().on_http(
-        cfg.kona
-            .l2_node_address
-            .clone()
-            .unwrap()
-            .as_str()
-            .try_into()?,
-    );
+    op_node_address: &str,
+    l2_node_address: &str,
+    json_file_path: Option<&PathBuf>,
+) -> anyhow::Result<RollupConfig> {
+    let op_node_provider = ProviderBuilder::new().on_http(op_node_address.try_into()?);
+    let l2_node_provider = ProviderBuilder::new().on_http(l2_node_address.try_into()?);
 
     let mut rollup_config: Value = op_node_provider
         .client()
@@ -150,8 +151,11 @@ pub async fn fetch_rollup_config(
         }
     }
     // export
-    dbg!(&rollup_config);
-    fs::write(json_file_path, serde_json::to_string(&rollup_config)?).await?;
+    // dbg!(&rollup_config);
+    let ser_config = serde_json::to_string(&rollup_config)?;
+    if let Some(json_file_path) = json_file_path {
+        fs::write(json_file_path, &ser_config).await?;
+    }
 
-    Ok(())
+    Ok(serde_json::from_str(&ser_config)?)
 }

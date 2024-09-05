@@ -6,6 +6,24 @@ default:
 
 build:
   cargo build
+  forge build --root contracts
+
+devnet-up:
+  kurtosis run github.com/ethpandaops/optimism-package --args-file https://raw.githubusercontent.com/ethpandaops/optimism-package/main/network_params.yaml
+
+devnet-down:
+  kurtosis clean -a
+
+devnet-deploy l1_rpc l1_beacon_rpc l2_rpc rollup_node_rpc verbosity:
+  #!/usr/bin/env bash
+
+  ./target/debug/kailua-cli deploy \
+      --l1-node-address {{l1_rpc}} \
+      --l1-beacon-address {{l1_beacon_rpc}} \
+      --l2-node-address {{l2_rpc}} \
+      --op-node-address {{rollup_node_rpc}} \
+      {{verbosity}}
+
 
 # Run the client program natively with the host program attached.
 prove block_number l1_rpc l1_beacon_rpc l2_rpc rollup_node_rpc data verbosity:
@@ -17,7 +35,7 @@ prove block_number l1_rpc l1_beacon_rpc l2_rpc rollup_node_rpc data verbosity:
   OP_NODE_ADDRESS="{{rollup_node_rpc}}"
 
   L2_BLOCK_NUMBER={{block_number}}
-  echo "Fetching configuration for block #$L2_BLOCK_NUMBER..."
+  echo "Fetching data for block #$L2_BLOCK_NUMBER..."
 
   # Get output root for block
   L2_CLAIM=$(cast rpc --rpc-url $OP_NODE_ADDRESS "optimism_outputAtBlock" $(cast 2h $L2_BLOCK_NUMBER) | jq -r .outputRoot)
@@ -53,7 +71,7 @@ prove-devnet block_number data verbosity:
 prove-kurtosis block_number data verbosity:
   #!/usr/bin/env bash
 
-  just prove {{block_number}} http://127.0.0.1:50498 http://127.0.0.1:50507 http://127.0.0.1:52572 http://127.0.0.1:52656 {{data}} {{verbosity}}
+  just prove {{block_number}} http://127.0.0.1:63638 http://127.0.0.1:63650 http://127.0.0.1:49320 http://127.0.0.1:49383 {{data}} {{verbosity}}
 
 # Show the input args for proving
 query block_number l1_rpc l1_beacon_rpc l2_rpc rollup_node_rpc:
@@ -65,7 +83,7 @@ query block_number l1_rpc l1_beacon_rpc l2_rpc rollup_node_rpc:
   OP_NODE_ADDRESS="{{rollup_node_rpc}}"
 
   L2_BLOCK_NUMBER={{block_number}}
-  echo "Fetching configuration for block #$L2_BLOCK_NUMBER..."
+  echo "Fetching data for block #$L2_BLOCK_NUMBER..."
 
   # Get output root for block
   cast rpc --rpc-url $OP_NODE_ADDRESS "optimism_outputAtBlock" $(cast 2h $L2_BLOCK_NUMBER) | jq -r .outputRoot
