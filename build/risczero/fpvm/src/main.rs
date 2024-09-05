@@ -17,7 +17,7 @@ use kona_client::l1::{DerivationDriver, OracleBlobProvider, OracleL1ChainProvide
 use kona_client::l2::OracleL2ChainProvider;
 use kona_client::BootInfo;
 use kona_executor::StatelessL2BlockExecutor;
-use kona_primitives::{Header, L2AttributesWithParent, RollupConfig};
+use kona_primitives::{Header, L2AttributesWithParent};
 use std::sync::Arc;
 // todo: use kailua_common::precompiles::RISCZeroPrecompileOverride;
 use kailua_common::oracle::{CachingRISCZeroOracle, ORACLE_LRU_SIZE};
@@ -33,10 +33,6 @@ fn main() -> anyhow::Result<()> {
 
         let oracle = Arc::new(CachingRISCZeroOracle::new(ORACLE_LRU_SIZE));
         let boot = Arc::new(BootInfo::load(oracle.as_ref()).await?);
-        assert_eq!(
-            boot.rollup_config,
-            RollupConfig::from_l2_chain_id(boot.chain_id).expect("Unsupported chain id")
-        );
 
         let l1_provider = OracleL1ChainProvider::new(boot.clone(), oracle.clone());
         let l2_provider = OracleL2ChainProvider::new(boot.clone(), oracle.clone());

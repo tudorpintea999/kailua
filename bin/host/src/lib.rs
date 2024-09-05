@@ -85,12 +85,36 @@ pub async fn fetch_rollup_config(
         .request_noparams("debug_chainConfig")
         .await?;
 
-    // batcherAddress
-    rollup_config["genesis"]["system_config"]["batcherAddress"] = rollup_config["genesis"]
-        ["system_config"]
+    // genesis
+    rollup_config["genesis"]["L1"] = rollup_config["genesis"]
         .as_object_mut()
         .unwrap()
-        .remove("batcherAddr")
+        .remove("l1")
+        .unwrap();
+    rollup_config["genesis"]["L1"]["Hash"] = rollup_config["genesis"]["L1"]
+        .as_object_mut()
+        .unwrap()
+        .remove("hash")
+        .unwrap();
+    rollup_config["genesis"]["L1"]["Number"] = rollup_config["genesis"]["L1"]
+        .as_object_mut()
+        .unwrap()
+        .remove("number")
+        .unwrap();
+    rollup_config["genesis"]["L2"] = rollup_config["genesis"]
+        .as_object_mut()
+        .unwrap()
+        .remove("l2")
+        .unwrap();
+    rollup_config["genesis"]["L2"]["Hash"] = rollup_config["genesis"]["L2"]
+        .as_object_mut()
+        .unwrap()
+        .remove("hash")
+        .unwrap();
+    rollup_config["genesis"]["L2"]["Number"] = rollup_config["genesis"]["L2"]
+        .as_object_mut()
+        .unwrap()
+        .remove("number")
         .unwrap();
     // base_fee_params
     rollup_config["base_fee_params"] = json!({

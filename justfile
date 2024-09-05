@@ -53,7 +53,7 @@ prove-devnet block_number data verbosity:
 prove-kurtosis block_number data verbosity:
   #!/usr/bin/env bash
 
-  just prove {{block_number}} http://127.0.0.1:54810 http://127.0.0.1:54860 http://127.0.0.1:56824 http://127.0.0.1:56916 {{data}} {{verbosity}}
+  just prove {{block_number}} http://127.0.0.1:50498 http://127.0.0.1:50507 http://127.0.0.1:52572 http://127.0.0.1:52656 {{data}} {{verbosity}}
 
 # Show the input args for proving
 query block_number l1_rpc l1_beacon_rpc l2_rpc rollup_node_rpc:

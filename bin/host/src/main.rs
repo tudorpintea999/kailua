@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use anyhow::Result;
 use clap::Parser;
 use kailua_client::fpvm_proof_file_name;
 use kailua_common::BasicBootInfo;
@@ -26,7 +25,7 @@ use tokio::io::AsyncReadExt;
 use tracing::info;
 
 #[tokio::main(flavor = "multi_thread")]
-async fn main() -> Result<()> {
+async fn main() -> anyhow::Result<()> {
     let mut cfg = KailuaHostCli::parse();
     init_tracing_subscriber(cfg.kona.v)?;
     // generate a RollupConfig for the target network
@@ -37,7 +36,10 @@ async fn main() -> Result<()> {
         info!("Fetching rollup config from nodes.");
         let tmp_cfg_file = tmp_dir.path().join("rollup-config.json");
         fetch_rollup_config(&cfg, &tmp_cfg_file).await?;
-        cfg.kona.rollup_config_path = Some(tmp_cfg_file)
+        cfg.kona.rollup_config_path = Some(tmp_cfg_file);
+        cfg.kona
+            .read_rollup_config()
+            .expect("Failed to read custom rollup config");
     }
     // generate a proof using the client and server for each block
     let mut receipts = Vec::<Receipt>::new();
