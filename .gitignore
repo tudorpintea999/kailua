@@ -4,3 +4,7 @@ target/
 *.fake
 *.zkp
 .localtestdata
+# foundry
+broadcast
+cache
+out

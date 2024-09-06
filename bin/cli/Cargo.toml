@@ -4,14 +4,15 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-alloy-primitives.workspace = true
-alloy-provider.workspace = true
+alloy = { workspace = true, features = ["full"] }
 anyhow.workspace = true
+bytemuck.workspace = true
 clap.workspace = true
 
 kailua-build.workspace = true
 kailua-client.workspace = true
 kailua-common.workspace = true
+kailua-contracts.workspace = true
 kailua-host.workspace = true
 
 kona-host.workspace = true

@@ -43,7 +43,7 @@ pub struct DeployArgs {
     pub l2_node_address: String,
     /// Address of L1 JSON-RPC endpoint to use (eth namespace required)
     #[clap(long)]
-    pub l1_node_address: Option<String>,
+    pub l1_node_address: String,
     /// Address of the L1 Beacon API endpoint to use.
     #[clap(long)]
     pub l1_beacon_address: Option<String>,

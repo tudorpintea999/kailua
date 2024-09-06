@@ -6,7 +6,6 @@ default:
 
 build:
   cargo build
-  forge build --root contracts
 
 devnet-up:
   kurtosis run github.com/ethpandaops/optimism-package --args-file https://raw.githubusercontent.com/ethpandaops/optimism-package/main/network_params.yaml
@@ -14,9 +13,7 @@ devnet-up:
 devnet-down:
   kurtosis clean -a
 
-devnet-deploy l1_rpc l1_beacon_rpc l2_rpc rollup_node_rpc verbosity:
-  #!/usr/bin/env bash
-
+devnet-deploy l1_rpc l1_beacon_rpc l2_rpc rollup_node_rpc verbosity="":
   ./target/debug/kailua-cli deploy \
       --l1-node-address {{l1_rpc}} \
       --l1-beacon-address {{l1_beacon_rpc}} \
@@ -26,7 +23,7 @@ devnet-deploy l1_rpc l1_beacon_rpc l2_rpc rollup_node_rpc verbosity:
 
 
 # Run the client program natively with the host program attached.
-prove block_number l1_rpc l1_beacon_rpc l2_rpc rollup_node_rpc data verbosity:
+prove block_number l1_rpc l1_beacon_rpc l2_rpc rollup_node_rpc data verbosity="":
   #!/usr/bin/env bash
 
   L1_NODE_ADDRESS="{{l1_rpc}}"
@@ -63,12 +60,12 @@ prove block_number l1_rpc l1_beacon_rpc l2_rpc rollup_node_rpc data verbosity:
     --data-dir {{data}} \
     {{verbosity}}
 
-prove-devnet block_number data verbosity:
+prove-devnet block_number data verbosity="":
   #!/usr/bin/env bash
 
   just prove {{block_number}} http://localhost:8545 http://localhost:5052 http://localhost:9545 http://localhost:7545 {{data}} {{verbosity}}
 
-prove-kurtosis block_number data verbosity:
+prove-kurtosis block_number data verbosity="":
   #!/usr/bin/env bash
 
   just prove {{block_number}} http://127.0.0.1:63638 http://127.0.0.1:63650 http://127.0.0.1:49320 http://127.0.0.1:49383 {{data}} {{verbosity}}
@@ -95,33 +92,7 @@ query block_number l1_rpc l1_beacon_rpc l2_rpc rollup_node_rpc:
   cast block --rpc-url $L1_NODE_ADDRESS $((L1_ORIGIN_NUM + 30)) -j | jq -r .hash
   cast chain-id --rpc-url $L2_NODE_ADDRESS
 
-# Prove via foundry ffi calls
-prove-ffi l1_head l2_output_root l2_output_block_number claim_block_number claim_root l2_chain_id:
-  #!/usr/bin/env bash
-
-  echo "Building rust binaries.." > /dev/tty
-  just build
-
-  echo "Fetching L2 head.." > /dev/tty
-  L2_HEAD=$(cast block --rpc-url $L2_NODE_ADDRESS {{l2_output_block_number}} -j | jq -r .hash)
-
-  echo "Invoking Kailua.." > /dev/tty
-  ./target/debug/kailua-host \
-    --l1-node-address $L1_NODE_ADDRESS \
-    --l1-beacon-address $L1_BEACON_ADDRESS \
-    --l2-node-address $L2_NODE_ADDRESS \
-    --op-node-address $OP_NODE_ADDRESS \
-    --l1-head {{l1_head}} \
-    --l2-head $L2_HEAD \
-    --l2-claim {{claim_root}} \
-    --l2-output-root {{l2_output_root}} \
-    --l2-block-number {{claim_block_number}} \
-    --l2-chain-id {{l2_chain_id}} \
-    --exec ./target/debug/kailua-client \
-    --data-dir ./.localtestdata \
-    -vvv >> /dev/tty 2>&1
-
-prove-offline block_number l2_claim l2_output_root l2_head l1_head l2_chain_id data verbosity:
+prove-offline block_number l2_claim l2_output_root l2_head l1_head l2_chain_id data verbosity="":
   #!/usr/bin/env bash
 
   L2_BLOCK_NUMBER={{block_number}}
@@ -143,14 +114,17 @@ prove-offline block_number l2_claim l2_output_root l2_head l1_head l2_chain_id d
     --data-dir {{data}} \
     {{verbosity}}
 
-test-all verbosity:
+test verbosity="-v":
     #!/usr/bin/env bash
 
     echo "Rebuilding kailua using cargo"
     just build
 
+    echo "Running cargo tests"
+    RISC0_DEV_MODE=1 cargo test
+
     echo "Running offline proof for op-sepolia block 16491249 (This will take time, and money if RISC0_DEV_MODE is not enabled)"
-    just prove-offline 16491249 0x82da7204148ba4d8d59e587b6b3fdde5561dc31d9e726220f7974bf9f2158d75 0xa548f22e1aa590de7ed271e3eab5b66c6c3db9b8cb0e3f91618516ea9ececde4 0x09b298a83baf4c2e3c6a2e355bb09e27e3fdca435080e8754f8749233d7333b2 0x33a3e5721faa4dc6f25e75000d9810fd6c41320868f3befcc0c261a71da398e1 11155420 ./testdata/16491249/data {{verbosity}}
+    RISC0_DEV_MODE=1 just prove-offline 16491249 0x82da7204148ba4d8d59e587b6b3fdde5561dc31d9e726220f7974bf9f2158d75 0xa548f22e1aa590de7ed271e3eab5b66c6c3db9b8cb0e3f91618516ea9ececde4 0x09b298a83baf4c2e3c6a2e355bb09e27e3fdca435080e8754f8749233d7333b2 0x33a3e5721faa4dc6f25e75000d9810fd6c41320868f3befcc0c261a71da398e1 11155420 ./testdata/16491249/data {{verbosity}}
 
     echo "Cleanup: Removing any .fake receipt files in directory."
     rm ./*.fake

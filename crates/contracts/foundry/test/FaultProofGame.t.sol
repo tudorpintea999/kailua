@@ -59,7 +59,7 @@ contract FaultProofGameTest is Test, FaultProofGameCheats {
     function testMockFaultProof() public {
         assertEq(vm.activeFork(), mainnetFork);
         // Send a new proposal one block ahead
-        (Hash anchorBlockHash, uint256 anchorBlockNum) = registry.anchors(faultDisputeGameType);
+        (, uint256 anchorBlockNum) = registry.anchors(faultDisputeGameType);
         bytes32 outputClaim = keccak256("I am unprovable.");
         uint256 outputBlockNum = anchorBlockNum + 2;
         FaultProofGame gameInstance = FaultProofGame(
@@ -70,14 +70,6 @@ contract FaultProofGameTest is Test, FaultProofGameCheats {
                     abi.encodePacked(outputBlockNum)
                 )
             )
-        );
-        bytes memory _res = proveFFI(
-            gameInstance.l1Head().raw(),
-            anchorBlockHash.raw(),
-            anchorBlockNum,
-            outputBlockNum,
-            outputClaim,
-            gameInstance.l2ChainId()
         );
         // Check that we cannot resolve this game yet
         vm.expectRevert(ClockNotExpired.selector);

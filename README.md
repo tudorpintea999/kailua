@@ -20,31 +20,28 @@ Kailua enables rollup operators to add a new `FaultProofGame` contract, compatib
 
 ## Usage
 
-1. Build `kailua` while in the cloned repository root using `just build`
+1. `just build`
+   * Builds the cargo and foundry projects
 2. `just devnet-up`
    * Starts a local OP Stack devnet using kurtosis.
+   * After you're done, you can stop the devnet with `just devnet-down`
    * Note down the below local endpoints from the final kurtosis output
    ```text
-   ================================ User Services ================================
-   Name                      Ports                                       Service
-   el-1-geth-lighthouse      rpc: 8545/tcp -> 127.0.0.1:<PORT>           L1_NODE
-   cl-1-lighthouse-geth      http: 4000/tcp -> http://127.0.0.1:<PORT>   L1_RPC
-   op-el-1-op-geth-op-node   rpc: 8545/tcp -> http://127.0.0.1:<PORT>    L2_NODE
-   op-cl-1-op-node-op-geth   http: 8547/tcp -> http://127.0.0.1:<PORT>   L2_RPC 
+   =================== User Services ===================
+   Name                      Ports                              
+   el-1-geth-lighthouse      rpc: 8545/tcp  -> <L1_NODE>
+   cl-1-lighthouse-geth      http: 4000/tcp -> <L1_RPC>
+   op-el-1-op-geth-op-node   rpc: 8545/tcp  -> <L2_NODE>
+   op-cl-1-op-node-op-geth   http: 8547/tcp -> <L2_RPC> 
    ```
 3. `just devnet-deploy <L1_NODE> <L1_RPC> <L2_NODE> <L2_RPC>`
-   * Deploys a base `FaultProofGame` contract configured with your `RollupConfig` and guest image ids.
    * Use the local endpoints from your terminal's kurtosis output.
-
-
-[//]: # (1. Hardcode your `RollupConfig` into the `fpvm` binary and perform a reproducible docker build.)
-3. Deploy a cloneable `FaultProofGame` contract with your `fpvm` and `fpvm-chained` image ids.
-
+   * Deploys a base `FaultProofGame` contract configured with your `RollupConfig` and guest image ids.
 4. Integrate `FaultProofGame` into your rollup's `DisputeGameFactory` using the following methods:
    1. Call `setInitBond` to set the required bond for proposing outputs using the `FaultProofGame`. 
    2. Call `setImplementation` to set the address of the `FaultProofGame` contract you've deployed.
-5. Update the `AnchorStateRegistry` to copy the last confirmed output from another game.
-6. Invoke Kailua to generate proofs.
+[//]: # (5. Update the `AnchorStateRegistry` to copy the last confirmed output from another game.)
+5. Invoke Kailua to generate proofs.
 
 ## TODO:
 1. Embed immutable hash of `RollupConfig` in `FaultProofGame` and `fpvm`.
