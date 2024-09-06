@@ -1,8 +1,9 @@
-use crate::oracle::CachingOracle;
+// use crate::oracle::CachingOracle;
+use crate::oracle::{HINT_WRITER, ORACLE_READER};
 use kailua_common::oracle::ORACLE_LRU_SIZE;
 use kona_client::l1::{DerivationDriver, OracleBlobProvider, OracleL1ChainProvider};
 use kona_client::l2::OracleL2ChainProvider;
-use kona_client::BootInfo;
+use kona_client::{BootInfo, CachingOracle};
 use kona_executor::StatelessL2BlockExecutor;
 use kona_primitives::L2AttributesWithParent;
 use std::sync::Arc;
@@ -15,7 +16,11 @@ pub async fn run_native_client() -> anyhow::Result<()> {
         ////////////////////////////////////////////////////////////////
 
         info!("PROLOGUE");
-        let oracle = Arc::new(CachingOracle::new(ORACLE_LRU_SIZE));
+        let oracle = Arc::new(CachingOracle::new(
+            ORACLE_LRU_SIZE,
+            ORACLE_READER,
+            HINT_WRITER,
+        ));
         let boot = Arc::new(
             BootInfo::load(oracle.as_ref())
                 .await

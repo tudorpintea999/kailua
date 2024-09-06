@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// todo: pub mod precompiles;
-
 use alloy_primitives::B256;
 use kona_client::BootInfo;
 use serde::{Deserialize, Serialize};

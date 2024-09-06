@@ -15,11 +15,12 @@
 pub mod native;
 pub mod oracle;
 
+use crate::oracle::{HINT_WRITER, ORACLE_READER};
 use alloy_primitives::B256;
 use kailua_build::{KAILUA_FPVM_ELF, KAILUA_FPVM_ID};
 use kailua_common::oracle::{FPVM_GET_PREIMAGE, FPVM_WRITE_HINT, ORACLE_LRU_SIZE};
+use kona_client::CachingOracle;
 use kona_preimage::{HintWriterClient, PreimageOracleClient};
-use oracle::CachingOracle;
 use risc0_zkvm::{default_prover, ExecutorEnv, Receipt};
 use std::sync::Arc;
 use tokio::join;
@@ -28,7 +29,11 @@ use tokio::task::spawn_blocking;
 
 pub async fn run_zkvm_client() -> anyhow::Result<Receipt> {
     let client_task = spawn_blocking(|| {
-        let oracle = Arc::new(CachingOracle::new(ORACLE_LRU_SIZE));
+        let oracle = Arc::new(CachingOracle::new(
+            ORACLE_LRU_SIZE,
+            ORACLE_READER,
+            HINT_WRITER,
+        ));
         let env = ExecutorEnv::builder()
             .io_callback(FPVM_GET_PREIMAGE, |key| {
                 let byte_vec = key.to_vec();

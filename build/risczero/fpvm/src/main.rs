@@ -19,7 +19,6 @@ use kona_client::BootInfo;
 use kona_executor::StatelessL2BlockExecutor;
 use kona_primitives::{Header, L2AttributesWithParent};
 use std::sync::Arc;
-// todo: use kailua_common::precompiles::RISCZeroPrecompileOverride;
 use kailua_common::oracle::{CachingRISCZeroOracle, ORACLE_LRU_SIZE};
 use kailua_common::BasicBootInfo;
 use risc0_zkvm::guest::env;
@@ -52,28 +51,8 @@ fn main() -> anyhow::Result<()> {
         )
         .await?;
 
-        // env::log("SKIPPING REMAINING WORK!!");
-        // use std::ops::Deref;
-        // env::commit(&kailua_common::BasicBootInfo::from(boot.deref().clone()));
-        // return Ok::<_, anyhow::Error>(());
-
         env::log("PAYLOAD");
-        // todo: once it's clear how this behaves when we move past the booted l1 header, we can prove fraud
-        // let attributes = match driver.produce_disputed_payload().await {
-        //     Ok(L2AttributesWithParent { attributes, .. }) => attributes,
-        //     Err(_) => {
-        //         env::log("Hit EOF");
-        //         use std::ops::Deref;
-        //         env::commit(&BasicBootInfo::from(boot.deref().clone()));
-        //         return Ok::<_, anyhow::Error>(());
-        //     }
-        // };
         let L2AttributesWithParent { attributes, .. } = driver.produce_disputed_payload().await?;
-
-        // todo: let precompile_overrides = RISCZeroPrecompileOverride::<
-        //     OracleL2ChainProvider<CachingRISCZeroOracle>,
-        //     OracleL2ChainProvider<CachingRISCZeroOracle>,
-        // >::default();
 
         env::log("EXECUTION");
         let mut executor: StatelessL2BlockExecutor<_, _> =
@@ -81,7 +60,6 @@ fn main() -> anyhow::Result<()> {
                 .with_parent_header(driver.take_l2_safe_head_header())
                 .with_fetcher(l2_provider.clone())
                 .with_hinter(l2_provider)
-                // todo: .with_precompile_overrides(precompile_overrides)
                 .build()?;
 
         env::log("HEADER");
