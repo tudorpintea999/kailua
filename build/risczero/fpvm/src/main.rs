@@ -52,7 +52,9 @@ fn main() -> anyhow::Result<()> {
         .await?;
 
         env::log("PAYLOAD");
-        let L2AttributesWithParent { attributes, .. } = driver.produce_disputed_payload().await?;
+        let Some(L2AttributesWithParent { attributes, .. }) = driver.produce_disputed_payload().await? else {
+            todo!()
+        };
 
         env::log("EXECUTION");
         let mut executor: StatelessL2BlockExecutor<_, _> =

@@ -43,7 +43,10 @@ pub async fn run_native_client() -> anyhow::Result<()> {
         )
         .await
         .expect("Faled to init driver");
-        let L2AttributesWithParent { attributes, .. } = driver.produce_disputed_payload().await?;
+        let L2AttributesWithParent { attributes, .. } = driver
+            .produce_disputed_payload()
+            .await?
+            .expect("Failed to derive payload attributes");
 
         let mut executor: StatelessL2BlockExecutor<_, _> =
             StatelessL2BlockExecutor::builder(&boot.rollup_config)

@@ -672,9 +672,9 @@ dependencies = [
 
 [[package]]
 name = "bytemuck"
-version = "1.17.1"
+version = "1.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "773d90827bc3feecfb67fab12e24de0749aad83c74b9504ecde46237b5cd24e2"
+checksum = "94bbb0ad554ad961ddc5da507a12a29b14e4ae5bda06b19f575a3e6079d2e2ae"
 dependencies = [
  "bytemuck_derive",
 ]
@@ -835,9 +835,9 @@ dependencies = [
 
 [[package]]
 name = "cpufeatures"
-version = "0.2.13"
+version = "0.2.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "51e852e6dc9a5bed1fae92dd2375037bf2b768725bf3be87811edee3249d09ad"
+checksum = "608697df725056feaccfa42cffdaeeec3fccc4ffc38358ecd19b243e716a78e0"
 dependencies = [
  "libc",
 ]
@@ -1534,7 +1534,7 @@ dependencies = [
 [[package]]
 name = "kona-client"
 version = "0.1.0"
-source = "git+https://github.com/hashcashier/kona?branch=kailua#d531200351dbeb77c114b90041d345b588ce7991"
+source = "git+https://github.com/hashcashier/kona?branch=kailua-2#cfe909e0112455765a2b7ad856126ef0cda778db"
 dependencies = [
  "alloy-consensus",
  "alloy-eips",
@@ -1562,7 +1562,7 @@ dependencies = [
 [[package]]
 name = "kona-common"
 version = "0.0.3"
-source = "git+https://github.com/hashcashier/kona?branch=kailua#d531200351dbeb77c114b90041d345b588ce7991"
+source = "git+https://github.com/hashcashier/kona?branch=kailua-2#cfe909e0112455765a2b7ad856126ef0cda778db"
 dependencies = [
  "anyhow",
  "cfg-if",
@@ -1572,7 +1572,7 @@ dependencies = [
 [[package]]
 name = "kona-common-proc"
 version = "0.0.3"
-source = "git+https://github.com/hashcashier/kona?branch=kailua#d531200351dbeb77c114b90041d345b588ce7991"
+source = "git+https://github.com/hashcashier/kona?branch=kailua-2#cfe909e0112455765a2b7ad856126ef0cda778db"
 dependencies = [
  "anyhow",
  "cfg-if",
@@ -1585,7 +1585,7 @@ dependencies = [
 [[package]]
 name = "kona-derive"
 version = "0.0.3"
-source = "git+https://github.com/hashcashier/kona?branch=kailua#d531200351dbeb77c114b90041d345b588ce7991"
+source = "git+https://github.com/hashcashier/kona?branch=kailua-2#cfe909e0112455765a2b7ad856126ef0cda778db"
 dependencies = [
  "alloc-no-stdlib",
  "alloy-consensus",
@@ -1606,7 +1606,7 @@ dependencies = [
 [[package]]
 name = "kona-executor"
 version = "0.0.2"
-source = "git+https://github.com/hashcashier/kona?branch=kailua#d531200351dbeb77c114b90041d345b588ce7991"
+source = "git+https://github.com/hashcashier/kona?branch=kailua-2#cfe909e0112455765a2b7ad856126ef0cda778db"
 dependencies = [
  "alloy-consensus",
  "alloy-eips",
@@ -1622,7 +1622,7 @@ dependencies = [
 [[package]]
 name = "kona-mpt"
 version = "0.0.3"
-source = "git+https://github.com/hashcashier/kona?branch=kailua#d531200351dbeb77c114b90041d345b588ce7991"
+source = "git+https://github.com/hashcashier/kona?branch=kailua-2#cfe909e0112455765a2b7ad856126ef0cda778db"
 dependencies = [
  "alloy-consensus",
  "alloy-primitives 0.8.0",
@@ -1636,7 +1636,7 @@ dependencies = [
 [[package]]
 name = "kona-preimage"
 version = "0.0.3"
-source = "git+https://github.com/hashcashier/kona?branch=kailua#d531200351dbeb77c114b90041d345b588ce7991"
+source = "git+https://github.com/hashcashier/kona?branch=kailua-2#cfe909e0112455765a2b7ad856126ef0cda778db"
 dependencies = [
  "alloy-primitives 0.8.0",
  "anyhow",
@@ -1649,17 +1649,16 @@ dependencies = [
 [[package]]
 name = "kona-primitives"
 version = "0.0.2"
-source = "git+https://github.com/hashcashier/kona?branch=kailua#d531200351dbeb77c114b90041d345b588ce7991"
+source = "git+https://github.com/hashcashier/kona?branch=kailua-2#cfe909e0112455765a2b7ad856126ef0cda778db"
 dependencies = [
  "alloy-consensus",
  "alloy-eips",
  "alloy-primitives 0.8.0",
  "alloy-rlp",
  "anyhow",
- "hashbrown 0.14.5",
  "op-alloy-consensus",
+ "op-alloy-protocol",
  "serde",
- "spin",
  "superchain-primitives",
 ]
 
@@ -1964,6 +1963,16 @@ dependencies = [
  "alloy-rlp",
  "derive_more 1.0.0",
  "spin",
+]
+
+[[package]]
+name = "op-alloy-protocol"
+version = "0.2.8"
+source = "git+https://github.com/alloy-rs/op-alloy?rev=0d8ef62#0d8ef62ae942c85d260e64f08d10e0a429c00289"
+dependencies = [
+ "alloy-primitives 0.8.0",
+ "hashbrown 0.14.5",
+ "superchain-primitives",
 ]
 
 [[package]]
@@ -2737,9 +2746,9 @@ dependencies = [
 
 [[package]]
 name = "rustix"
-version = "0.38.35"
+version = "0.38.36"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a85d50532239da68e9addb745ba38ff4612a242c1c7ceea689c4bc7c2f43c36f"
+checksum = "3f55e80d50763938498dd5ebb18647174e0c76dc38c5505294bb224624f30f36"
 dependencies = [
  "bitflags 2.6.0",
  "errno",
