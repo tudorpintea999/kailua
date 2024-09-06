@@ -40,7 +40,6 @@ Kailua enables rollup operators to add a new `FaultProofGame` contract, compatib
 4. Integrate `FaultProofGame` into your rollup's `DisputeGameFactory` using the following methods:
    1. Call `setInitBond` to set the required bond for proposing outputs using the `FaultProofGame`. 
    2. Call `setImplementation` to set the address of the `FaultProofGame` contract you've deployed.
-[//]: # (5. Update the `AnchorStateRegistry` to copy the last confirmed output from another game.)
 5. Invoke Kailua to generate proofs.
 
 ## TODO:
