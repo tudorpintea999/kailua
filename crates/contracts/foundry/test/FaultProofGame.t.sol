@@ -20,9 +20,8 @@ import "../lib/forge-std/src/console.sol";
 import "./MockVerifier.sol";
 import "../src/vendor/FlatOPImportV1.4.0.sol";
 import "../src/FaultProofGame.sol";
-import "../src/FaultProofGameCheats.sol";
 
-contract FaultProofGameTest is Test, FaultProofGameCheats {
+contract FaultProofGameTest is Test {
     uint256 mainnetFork;
     MockVerifier verifier;
     FaultProofGame faultProofGame;
@@ -65,9 +64,7 @@ contract FaultProofGameTest is Test, FaultProofGameCheats {
         FaultProofGame gameInstance = FaultProofGame(
             address(
                 factory.create{value: 1 wei}(
-                    faultProofGameType,
-                    Claim.wrap(outputClaim),
-                    abi.encodePacked(outputBlockNum)
+                    faultProofGameType, Claim.wrap(outputClaim), abi.encodePacked(outputBlockNum)
                 )
             )
         );
