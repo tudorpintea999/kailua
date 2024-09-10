@@ -20,7 +20,7 @@ use kona_executor::StatelessL2BlockExecutor;
 use kona_primitives::{Header, L2AttributesWithParent};
 use std::sync::Arc;
 use kailua_common::oracle::{CachingRISCZeroOracle, ORACLE_LRU_SIZE};
-use kailua_common::BasicBootInfo;
+use kailua_common::{config_hash, BasicBootInfo};
 use risc0_zkvm::guest::env;
 
 fn main() -> anyhow::Result<()> {
@@ -32,6 +32,7 @@ fn main() -> anyhow::Result<()> {
 
         let oracle = Arc::new(CachingRISCZeroOracle::new(ORACLE_LRU_SIZE));
         let boot = Arc::new(BootInfo::load(oracle.as_ref()).await?);
+        let rollup_config_hash = config_hash(&boot.rollup_config).expect("Failed to derive configuration hash");
 
         let l1_provider = OracleL1ChainProvider::new(boot.clone(), oracle.clone());
         let l2_provider = OracleL2ChainProvider::new(boot.clone(), oracle.clone());
@@ -81,7 +82,7 @@ fn main() -> anyhow::Result<()> {
             l2_output_root: boot.l2_output_root,
             l2_claim,
             l2_claim_block,
-            chain_id: boot.chain_id,
+            config_hash: rollup_config_hash,
         });
 
         Ok::<_, anyhow::Error>(())

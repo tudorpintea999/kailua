@@ -10,6 +10,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = { version = "1.0.86", default-features = false }
+bytemuck = "1.12"
 
 kailua-common = { path = "../../../crates/common" }
 

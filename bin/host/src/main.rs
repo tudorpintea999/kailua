@@ -14,7 +14,7 @@
 
 use clap::Parser;
 use kailua_client::fpvm_proof_file_name;
-use kailua_common::BasicBootInfo;
+use kailua_common::{config_hash, BasicBootInfo};
 use kailua_host::{aggregate_client_proofs, fetch_rollup_config, KailuaHostCli};
 use kona_host::{init_tracing_subscriber, start_server_and_native_client};
 use kona_primitives::RollupConfig;
@@ -92,14 +92,16 @@ async fn main() -> anyhow::Result<()> {
         receipts.push(receipt);
     }
 
-    // aggregate all proofs to form the final argument
+    // todo: aggregate all proofs to form the final argument
+    let rollup_config = RollupConfig::from_l2_chain_id(cfg.kona.l2_chain_id)
+        .unwrap_or_else(|| cfg.kona.read_rollup_config().unwrap());
     let _aggregate_proof = aggregate_client_proofs(
         BasicBootInfo {
             l1_head: cfg.kona.l1_head,
             l2_output_root: cfg.kona.l2_output_root,
             l2_claim: cfg.kona.l2_claim,
             l2_claim_block: cfg.kona.l2_block_number,
-            chain_id: cfg.kona.l2_chain_id,
+            config_hash: config_hash(&rollup_config).unwrap(),
         },
         chain,
         receipts,

@@ -2915,6 +2915,7 @@ dependencies = [
 name = "kailua-common"
 version = "0.1.0"
 dependencies = [
+ "alloy-eips",
  "alloy-primitives 0.8.0",
  "anyhow",
  "async-trait",

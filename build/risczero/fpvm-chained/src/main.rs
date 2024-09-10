@@ -30,10 +30,12 @@ fn main() -> anyhow::Result<()> {
         assert_eq!(block.l1_head, claim.l1_head);
         // The sequence of individual derivation blocks must be coherent
         assert_eq!(block.l2_output_root, last_confirmed_output);
+        // All derivations must be under the same rollup config
+        assert_eq!(block.config_hash, claim.config_hash);
         // The proof must end at the claim's height
         if block.l2_claim_block == claim.l2_claim_block {
             let is_fault_proof = block.l2_claim != claim.l2_claim;
-            env::commit_slice(&claim.encode_packed(is_fault_proof));
+            env::commit_slice(&claim.encode_packed(is_fault_proof, bytemuck::cast::<[u32; 8], [u8; 32]>(fpvm_image_id)));
             break;
         }
         // todo: handle case where block number is unreachable to enable fraud proofs

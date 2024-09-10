@@ -12,8 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use alloy_primitives::B256;
+use alloy_eips::eip1559::BaseFeeParams;
+use alloy_primitives::{Address, B256};
+use anyhow::Context;
 use kona_client::BootInfo;
+use kona_primitives::RollupConfig;
+use risc0_zkvm::sha::{Impl as SHA2, Sha256};
 use serde::{Deserialize, Serialize};
 
 #[cfg(target_os = "zkvm")]
@@ -30,8 +34,8 @@ pub struct BasicBootInfo {
     pub l2_claim: B256,
     /// The L2 claim block number.
     pub l2_claim_block: u64,
-    /// The L2 chain ID.
-    pub chain_id: u64,
+    /// The configuration hash.
+    pub config_hash: [u8; 32],
 }
 
 impl From<BootInfo> for BasicBootInfo {
@@ -41,21 +45,152 @@ impl From<BootInfo> for BasicBootInfo {
             l2_output_root: value.l2_output_root,
             l2_claim: value.l2_claim,
             l2_claim_block: value.l2_claim_block,
-            chain_id: value.chain_id,
+            config_hash: config_hash(&value.rollup_config).unwrap(),
         }
     }
 }
 
 impl BasicBootInfo {
-    pub fn encode_packed(&self, validity: bool) -> Vec<u8> {
+    pub fn encode_packed(&self, validity: bool, fpvm_image_id: [u8; 32]) -> Vec<u8> {
+        // update config hash with FPVM_IMAGE_ID in journal
+        let config_bytes = [self.config_hash.as_slice(), fpvm_image_id.as_slice()].concat();
+        let config_hash = SHA2::hash_bytes(config_bytes.as_slice());
         [
             self.l1_head.as_slice(),
             self.l2_output_root.as_slice(),
             self.l2_claim.as_slice(),
             self.l2_claim_block.to_be_bytes().as_slice(),
-            self.chain_id.to_be_bytes().as_slice(),
+            config_hash.as_bytes(),
             &[validity as u8],
         ]
         .concat()
     }
+}
+
+fn safe_default<V: core::fmt::Debug + Eq>(opt: Option<V>, default: V) -> anyhow::Result<V> {
+    if let Some(v) = opt {
+        if v == default {
+            anyhow::bail!(format!("Unsafe value! {v:?}"))
+        }
+        Ok(v)
+    } else {
+        Ok(default)
+    }
+}
+
+pub fn config_hash(rollup_config: &RollupConfig) -> anyhow::Result<[u8; 32]> {
+    // todo: check whether we need to include this, or if it is loaded from the config address
+    let system_config_hash: [u8; 32] = rollup_config
+        .genesis
+        .system_config
+        .as_ref()
+        .map(|system_config| {
+            let fields = [
+                system_config.batcher_address.0.as_slice(),
+                system_config.overhead.to_be_bytes::<32>().as_slice(),
+                system_config.scalar.to_be_bytes::<32>().as_slice(),
+                system_config.gas_limit.to_be_bytes().as_slice(),
+                safe_default(system_config.base_fee_scalar, u64::MAX)
+                    .context("base_fee_scalar")?
+                    .to_be_bytes()
+                    .as_slice(),
+                safe_default(system_config.blob_base_fee_scalar, u64::MAX)
+                    .context("blob_base_fee_scalar")?
+                    .to_be_bytes()
+                    .as_slice(),
+            ]
+            .concat();
+            let digest = SHA2::hash_bytes(fields.as_slice());
+
+            Ok::<[u8; 32], anyhow::Error>(digest.as_bytes().try_into()?)
+        })
+        .unwrap_or(Ok([0u8; 32]))?;
+    let canyon_base_fee_params = safe_default(
+        rollup_config.canyon_base_fee_params,
+        BaseFeeParams {
+            max_change_denominator: u128::MAX,
+            elasticity_multiplier: u128::MAX,
+        },
+    )
+    .context("canyon_base_fee_params")?;
+    let rollup_config_bytes = [
+        rollup_config.genesis.l1.hash.0.as_slice(),
+        rollup_config.genesis.l2.hash.0.as_slice(),
+        system_config_hash.as_slice(),
+        rollup_config.block_time.to_be_bytes().as_slice(),
+        rollup_config.max_sequencer_drift.to_be_bytes().as_slice(),
+        rollup_config.seq_window_size.to_be_bytes().as_slice(),
+        rollup_config.channel_timeout.to_be_bytes().as_slice(),
+        rollup_config
+            .granite_channel_timeout
+            .to_be_bytes()
+            .as_slice(),
+        rollup_config.l1_chain_id.to_be_bytes().as_slice(),
+        rollup_config.l2_chain_id.to_be_bytes().as_slice(),
+        rollup_config
+            .base_fee_params
+            .max_change_denominator
+            .to_be_bytes()
+            .as_slice(),
+        rollup_config
+            .base_fee_params
+            .elasticity_multiplier
+            .to_be_bytes()
+            .as_slice(),
+        canyon_base_fee_params
+            .max_change_denominator
+            .to_be_bytes()
+            .as_slice(),
+        canyon_base_fee_params
+            .elasticity_multiplier
+            .to_be_bytes()
+            .as_slice(),
+        safe_default(rollup_config.regolith_time, u64::MAX)
+            .context("regolith_time")?
+            .to_be_bytes()
+            .as_slice(),
+        safe_default(rollup_config.canyon_time, u64::MAX)
+            .context("canyon_time")?
+            .to_be_bytes()
+            .as_slice(),
+        safe_default(rollup_config.delta_time, u64::MAX)
+            .context("delta_time")?
+            .to_be_bytes()
+            .as_slice(),
+        safe_default(rollup_config.ecotone_time, u64::MAX)
+            .context("ecotone_time")?
+            .to_be_bytes()
+            .as_slice(),
+        safe_default(rollup_config.fjord_time, u64::MAX)
+            .context("fjord_time")?
+            .to_be_bytes()
+            .as_slice(),
+        safe_default(rollup_config.granite_time, u64::MAX)
+            .context("granite_time")?
+            .to_be_bytes()
+            .as_slice(),
+        safe_default(rollup_config.holocene_time, u64::MAX)
+            .context("holocene_time")?
+            .to_be_bytes()
+            .as_slice(),
+        safe_default(rollup_config.blobs_enabled_l1_timestamp, u64::MAX)
+            .context("blobs_enabled_timestmap")?
+            .to_be_bytes()
+            .as_slice(),
+        rollup_config.batch_inbox_address.0.as_slice(),
+        rollup_config.deposit_contract_address.0.as_slice(),
+        rollup_config.l1_system_config_address.0.as_slice(),
+        rollup_config.protocol_versions_address.0.as_slice(),
+        safe_default(rollup_config.superchain_config_address, Address::ZERO)
+            .context("superchain_config_address")?
+            .0
+            .as_slice(),
+        safe_default(rollup_config.da_challenge_address, Address::ZERO)
+            .context("da_challenge_address")?
+            .0
+            .as_slice(),
+    ]
+    .concat();
+    let digest = SHA2::hash_bytes(rollup_config_bytes.as_slice());
+    Ok::<[u8; 32], anyhow::Error>(digest.as_bytes().try_into()?)
 }

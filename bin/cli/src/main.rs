@@ -20,6 +20,7 @@ use anyhow::Context;
 use clap::Parser;
 use kailua_build::KAILUA_FPVM_CHAINED_ID;
 use kailua_cli::{Cli, DeployArgs};
+use kailua_common::config_hash;
 use kailua_host::fetch_rollup_config;
 use kona_host::init_tracing_subscriber;
 use std::str::FromStr;
@@ -40,6 +41,7 @@ pub async fn deploy(args: DeployArgs) -> anyhow::Result<()> {
     info!("Fetching rollup configuration from L2 nodes.");
     // fetch rollup config
     let config = fetch_rollup_config(&args.op_node_address, &args.l2_node_address, None).await?;
+    let rollup_config_hash = config_hash(&config).expect("Configuration hash derivation error");
     debug!("{:?}", &config);
     // initialize deployment wallet
     let eth_signer =
@@ -61,13 +63,12 @@ pub async fn deploy(args: DeployArgs) -> anyhow::Result<()> {
         &eth_provider,
         *mock_verifier_contract.address(),
         bytemuck::cast::<[u32; 8], [u8; 32]>(KAILUA_FPVM_CHAINED_ID).into(),
-        1337,
+        rollup_config_hash.into(),
         Uint::from(128),
         10 * 60 * 60,
-        Address::from_str("0x517B6326e9ad5579922AdFc295Cf3F59C9783553")?,
+        1337,
+        // Address::from_str("0x517B6326e9ad5579922AdFc295Cf3F59C9783553")?,
         Address::from_str("0x81e61D50d97E07e70ba847993F4fC6E4f68541eE")?,
-        Uint::from(config.l2_chain_id),
-        1,
     )
     .await
     .context("FaultProofGame contract deployment error")?;

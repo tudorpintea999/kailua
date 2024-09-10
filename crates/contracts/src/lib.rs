@@ -22,6 +22,12 @@ sol!(
 
 sol!(
     #[sol(rpc)]
+    FaultProofSetup,
+    "foundry/out/FaultProofSetup.sol/FaultProofSetup.json"
+);
+
+sol!(
+    #[sol(rpc)]
     MockVerifier,
     "foundry/out/MockVerifier.sol/MockVerifier.json"
 );
