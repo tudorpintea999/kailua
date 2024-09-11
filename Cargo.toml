@@ -19,6 +19,7 @@ clap = "4.5.11"
 c-kzg = { version = "1.0.2", default-features = false, features = ["portable"] }
 ethers = "2.0.14"
 foundry-compilers = "0.11.0"
+hex = "0.4.3"
 lazy_static = "1.5.0"
 lru = "0.12.4"
 revm = { git = "https://github.com/bluealloy/revm", tag = "v37", version = "10.0.0", default-features = false }

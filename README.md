@@ -10,7 +10,7 @@ Kailua uses the RISC-Zero zkVM to verifiably run Optimism's [Kona][kona] and sec
 
 Kailua enables rollup operators to add a new `FaultProofGame` contract, compatible with Bedrock contracts `v1.4.0` and above, using the `DisputeGameFactory` rollup instance to their deployment that relies on RISC-Zero zkVM proofs to finalize/dismiss output proposals.
 
-`FaultProofGame` can be configured to either pessimistically require a proof before any game can be resolved, or optimistically allow outputs to be accepted after a timeout if no fraud proof is published against it.
+`FaultProofGame` optimistically allows outputs to be accepted after a timeout if no fraud proof is published against it, or if the output is challenged, waits for a proof to be submitted to decide whether to dismiss or finalize the output.
 
 ## Prerequisites
 1. [rust](https://www.rust-lang.org/tools/install)
@@ -22,9 +22,9 @@ Kailua enables rollup operators to add a new `FaultProofGame` contract, compatib
 
 1. `just build`
    * Builds the cargo and foundry projects
-2. `just devnet-up`
+2. `just devnet-up > devnetlog.txt`
    * Starts a local OP Stack devnet using kurtosis.
-   * After you're done, you can stop the devnet with `just devnet-down`
+   * Dumps the output into `devnetlog.txt` for inspection.
    * Note down the below local endpoints from the final kurtosis output
    ```text
    =================== User Services ===================
@@ -34,13 +34,19 @@ Kailua enables rollup operators to add a new `FaultProofGame` contract, compatib
    op-el-1-op-geth-op-node   rpc: 8545/tcp  -> <L2_NODE>
    op-cl-1-op-node-op-geth   http: 8547/tcp -> <L2_RPC> 
    ```
-3. `just devnet-deploy <L1_NODE> <L1_RPC> <L2_NODE> <L2_RPC>`
-   * Use the local endpoints from your terminal's kurtosis output.
+   * Note down the below private key for the admin account
+   ```text
+   Getting the admin private key
+   Command returned with exit code '0' and the following output: <ADMIN_KEY>
+   ```
+3. `just devnet-deploy <L1_NODE> <L1_RPC> <L2_NODE> <L2_RPC> <ADMIN_KEY>`
+   * Use the values from your terminal's kurtosis output in `devnetlog.txt`.
    * Deploys a base `FaultProofGame` contract configured with your `RollupConfig` and guest image ids.
 4. Integrate `FaultProofGame` into your rollup's `DisputeGameFactory` using the following methods:
    1. Call `setInitBond` to set the required bond for proposing outputs using the `FaultProofGame`. 
    2. Call `setImplementation` to set the address of the `FaultProofGame` contract you've deployed.
 5. Invoke Kailua to generate proofs.
+6. After you're done, you can stop the devnet with `just devnet-down`
 
 ## TODO:
 1. Embed immutable hash of `RollupConfig` in `FaultProofGame` and `fpvm`.

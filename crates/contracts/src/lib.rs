@@ -31,3 +31,27 @@ sol!(
     MockVerifier,
     "foundry/out/MockVerifier.sol/MockVerifier.json"
 );
+
+sol! {
+    type GameId is bytes32;
+}
+
+sol! {
+    type Claim is bytes32;
+}
+
+sol! {
+    type Timestamp is uint64;
+}
+
+sol!(
+    #[sol(rpc)]
+    DisputeGameFactory,
+    "foundry/out/FlatOPImportV1.4.0.sol/DisputeGameFactory.json"
+);
+
+sol!(
+    #[sol(rpc)]
+    AnchorStateRegistry,
+    "foundry/out/FlatOPImportV1.4.0.sol/AnchorStateRegistry.json"
+);

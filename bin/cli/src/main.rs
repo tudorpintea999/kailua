@@ -42,36 +42,73 @@ pub async fn deploy(args: DeployArgs) -> anyhow::Result<()> {
     // fetch rollup config
     let config = fetch_rollup_config(&args.op_node_address, &args.l2_node_address, None).await?;
     let rollup_config_hash = config_hash(&config).expect("Configuration hash derivation error");
+    info!("RollupConfigHash({})", hex::encode(rollup_config_hash));
     debug!("{:?}", &config);
     // initialize deployment wallet
     let eth_signer =
-        LocalSigner::from_str("39725efee3fb28614de3bacaffe4cc4bd8c436257e2c8bb887c4b5c4be45e76d")?;
+        LocalSigner::from_str(&args.deployer_key)?;
     let eth_wallet = EthereumWallet::from(eth_signer);
     let eth_provider = ProviderBuilder::new()
         .with_recommended_fillers()
         .wallet(&eth_wallet)
         .on_http(args.l1_node_address.as_str().try_into()?);
-    // deploy contract with configuration
-    info!("Deploying MockVerifier contract to L1 rpc.");
-    let mock_verifier_contract = kailua_contracts::MockVerifier::deploy(&eth_provider)
-        .await
-        .context("MockVerifier contract deployment error")?;
-    info!("{:?}", &mock_verifier_contract);
-    // Deploy FaultProofGame contract
-    info!("Deploying FaultProofGame contract to L1 rpc.");
-    let fault_proof_game_contract = kailua_contracts::FaultProofGame::deploy(
+    // Init registry and factory contracts
+    let anchor_state_registry = kailua_contracts::AnchorStateRegistry::new(
+        Address::from_str(&args.registry_contract)?,
         &eth_provider,
-        *mock_verifier_contract.address(),
-        bytemuck::cast::<[u32; 8], [u8; 32]>(KAILUA_FPVM_CHAINED_ID).into(),
-        rollup_config_hash.into(),
-        Uint::from(128),
-        10 * 60 * 60,
-        1337,
-        // Address::from_str("0x517B6326e9ad5579922AdFc295Cf3F59C9783553")?,
-        Address::from_str("0x81e61D50d97E07e70ba847993F4fC6E4f68541eE")?,
-    )
-    .await
-    .context("FaultProofGame contract deployment error")?;
-    info!("{:?}", &fault_proof_game_contract);
+    );
+    info!("AnchorStateRegistry({:?})", anchor_state_registry.address());
+    let dispute_game_factory = kailua_contracts::DisputeGameFactory::new(
+        anchor_state_registry.disputeGameFactory().call().await?._0,
+        &eth_provider,
+    );
+    info!("DisputeGameFactory({:?})", dispute_game_factory.address());
+    let factory_owner = dispute_game_factory
+        .owner()
+        .call()
+        .await
+        .context("Failed to query factory owner.")?
+        ._0;
+    info!("DisputeGameFactory::owner({:?})", &factory_owner);
+    // Deploy FaultProofSetup contract
+    // {
+        info!("Deploying FaultProofSetup contract to L1 rpc.");
+        let fault_proof_setup_contract = kailua_contracts::FaultProofSetup::deploy(
+            &eth_provider,
+            1337,
+            1,
+            Address::from_str(&args.registry_contract)?,
+        )
+            .await
+            .context("FaultProofSetup contract deployment error")?;
+        info!("{:?}", &fault_proof_setup_contract);
+    // }
+    // Deploy MockVerifier contract
+    // {
+        info!("Deploying MockVerifier contract to L1 rpc.");
+        let mock_verifier_contract = kailua_contracts::MockVerifier::deploy(&eth_provider)
+            .await
+            .context("MockVerifier contract deployment error")?;
+        info!("{:?}", &mock_verifier_contract);
+    // }
+    // Deploy FaultProofGame contract
+    // {
+        info!("Deploying FaultProofGame contract to L1 rpc.");
+        let fault_proof_game_contract = kailua_contracts::FaultProofGame::deploy(
+            &eth_provider,
+            *mock_verifier_contract.address(),
+            bytemuck::cast::<[u32; 8], [u8; 32]>(KAILUA_FPVM_CHAINED_ID).into(),
+            rollup_config_hash.into(),
+            Uint::from(128),
+            10 * 60 * 60,
+            1337,
+            Address::from_str(&args.registry_contract)?,
+        )
+        .await
+        .context("FaultProofGame contract deployment error")?;
+        info!("{:?}", &fault_proof_game_contract);
+    // }
+    // todo: Update dispute factory implementation
+
     Ok(())
 }

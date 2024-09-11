@@ -109,6 +109,10 @@ contract FaultProofSetup is Clone, IDisputeGame {
         // INVARIANT: Resolution cannot occur unless the game is currently in progress.
         if (status != GameStatus.IN_PROGRESS) revert GameNotInProgress();
 
+        // INVARIANT: Only the factory owner can resolve the setup game
+//        IDisputeGameFactory disputeGameFactory = ANCHOR_STATE_REGISTRY.disputeGameFactory();
+//        if (msg.sender != disputeGameFactory.owner())
+
         // Update the status and emit the resolved event, note that we're performing a storage update here.
         emit Resolved(status = status_ = GameStatus.DEFENDER_WINS);
 

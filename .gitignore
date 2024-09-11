@@ -8,3 +8,4 @@ target/
 broadcast
 cache
 out
+*.txt

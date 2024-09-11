@@ -8,6 +8,7 @@ alloy = { workspace = true, features = ["full"] }
 anyhow.workspace = true
 bytemuck.workspace = true
 clap.workspace = true
+hex.workspace = true
 
 kailua-build.workspace = true
 kailua-client.workspace = true

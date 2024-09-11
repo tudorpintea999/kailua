@@ -2870,6 +2870,7 @@ dependencies = [
  "anyhow",
  "bytemuck",
  "clap",
+ "hex",
  "kailua-build",
  "kailua-client",
  "kailua-common",

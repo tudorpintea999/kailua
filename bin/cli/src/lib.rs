@@ -47,4 +47,16 @@ pub struct DeployArgs {
     /// Address of the L1 Beacon API endpoint to use.
     #[clap(long)]
     pub l1_beacon_address: Option<String>,
+
+    /// Address of the L1 `AnchorStateRegistry` contract
+    #[clap(long)]
+    pub registry_contract: String,
+
+    /// Secret key of L1 wallet to use for deploying contracts
+    #[clap(long)]
+    pub deployer_key: String,
+    /// Secret key of L1 wallet that (indirectly) owns `DisputeGameFactory`
+    #[clap(long)]
+    pub owner_key: String,
+
 }
