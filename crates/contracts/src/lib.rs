@@ -32,26 +32,26 @@ sol!(
     "foundry/out/MockVerifier.sol/MockVerifier.json"
 );
 
-sol! {
-    type GameId is bytes32;
-}
-
-sol! {
-    type Claim is bytes32;
-}
-
-sol! {
-    type Timestamp is uint64;
-}
-
 sol!(
     #[sol(rpc)]
-    DisputeGameFactory,
-    "foundry/out/FlatOPImportV1.4.0.sol/DisputeGameFactory.json"
+    OwnableUpgradeable,
+    "foundry/out/FlatOPImportV1.4.0.sol/OwnableUpgradeable.json"
 );
 
 sol!(
     #[sol(rpc)]
-    AnchorStateRegistry,
-    "foundry/out/FlatOPImportV1.4.0.sol/AnchorStateRegistry.json"
+    IDisputeGameFactory,
+    "foundry/out/FlatOPImportV1.4.0.sol/IDisputeGameFactory.json"
+);
+
+sol!(
+    #[sol(rpc)]
+    IAnchorStateRegistry,
+    "foundry/out/FlatOPImportV1.4.0.sol/IAnchorStateRegistry.json"
+);
+
+sol!(
+    #[sol(rpc)]
+    Safe,
+    "foundry/out/FlatOPImportV1.4.0.sol/Safe.json"
 );

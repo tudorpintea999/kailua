@@ -9,3 +9,4 @@ broadcast
 cache
 out
 *.txt
+*.log

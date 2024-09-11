@@ -78,22 +78,24 @@ contract FaultProofSetup is Clone, IDisputeGame {
         // INVARIANT: The game must not have already been initialized.
         if (createdAt.raw() > 0) revert AlreadyInitialized();
 
-        IDisputeGameFactory disputeGameFactory = ANCHOR_STATE_REGISTRY.disputeGameFactory();
+        if ((rootClaim().raw() != bytes32(0)) || (l2BlockNumber() != 0)) {
+            // Validate the cloned anchor state
+            IDisputeGameFactory disputeGameFactory = ANCHOR_STATE_REGISTRY.disputeGameFactory();
 
-        // Validate the cloned anchor state
-        (IDisputeGame proxyAddress,) = disputeGameFactory.games(ANCHORED_GAME_TYPE, rootClaim(), this.extraData());
+            (IDisputeGame proxyAddress,) = disputeGameFactory.games(ANCHORED_GAME_TYPE, rootClaim(), this.extraData());
 
-        IFaultDisputeGame anchoredGame = IFaultDisputeGame(address(proxyAddress));
+            IFaultDisputeGame anchoredGame = IFaultDisputeGame(address(proxyAddress));
 
-        // Validate that the game is resolved correctly
-        if (anchoredGame.status() != GameStatus.DEFENDER_WINS) revert InvalidAnchoredGame();
+            // Validate that the game is resolved correctly
+            if (anchoredGame.status() != GameStatus.DEFENDER_WINS) revert InvalidAnchoredGame();
 
-        // Revert if different proposal root
-        if (anchoredGame.rootClaim().raw() != rootClaim().raw()) revert UnexpectedRootClaim(rootClaim());
+            // Revert if different proposal root
+            if (anchoredGame.rootClaim().raw() != rootClaim().raw()) revert UnexpectedRootClaim(rootClaim());
 
-        // Revert if different proposal root block number
-        if (anchoredGame.l2BlockNumber() != l2BlockNumber()) {
-            revert BlockNumberMismatch(anchoredGame.l2BlockNumber(), l2BlockNumber());
+            // Revert if different proposal root block number
+            if (anchoredGame.l2BlockNumber() != l2BlockNumber()) {
+                revert BlockNumberMismatch(anchoredGame.l2BlockNumber(), l2BlockNumber());
+            }
         }
 
         // Set the game's starting timestamp

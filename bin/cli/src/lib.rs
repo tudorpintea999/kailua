@@ -58,5 +58,4 @@ pub struct DeployArgs {
     /// Secret key of L1 wallet that (indirectly) owns `DisputeGameFactory`
     #[clap(long)]
     pub owner_key: String,
-
 }

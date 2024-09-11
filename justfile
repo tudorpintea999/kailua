@@ -8,7 +8,7 @@ build:
   cargo build
 
 devnet-up:
-  kurtosis run github.com/hashcashier/optimism-package@admin-key --args-file https://raw.githubusercontent.com/ethpandaops/optimism-package/main/network_params.yaml > devnetlog.txt
+  kurtosis run github.com/hashcashier/optimism-package@admin-key --args-file devnet.yaml > devnet.log
 
 devnet-down:
   kurtosis clean -a
@@ -16,7 +16,7 @@ devnet-down:
 devnet-deploy l1_rpc l1_beacon_rpc l2_rpc rollup_node_rpc owner_key verbosity="":
   ./target/debug/kailua-cli deploy \
       --deployer-key 0x39725efee3fb28614de3bacaffe4cc4bd8c436257e2c8bb887c4b5c4be45e76d \
-      --registry-contract 0xfB2114326e021C47F70Ed6826945b2f93077A0B8 \
+      --registry-contract 0x07a236d945c99EfD78D2b334Bf548CD4FEb541E4 \
       --l1-node-address {{l1_rpc}} \
       --l1-beacon-address {{l1_beacon_rpc}} \
       --l2-node-address {{l2_rpc}} \
