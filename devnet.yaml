@@ -1,10 +1,45 @@
 optimism_package:
   participants:
     - el_type: op-geth
-    - el_type: op-reth
-    - el_type: op-erigon
-    - el_type: op-nethermind
-    - el_type: op-besu
+  network_params:
+    # Network name, used to enable syncing of alternative networks
+    # Defaults to "kurtosis"
+    network: "kurtosis"
+
+    # The network ID of the network.
+    # Must be unique for each network (if you run multiple networks)
+    # Defaults to "2151908"
+    network_id: "2151908"
+
+    # Seconds per slots
+    seconds_per_slot: 2
+
+    # Name of your rollup.
+    # Must be unique for each rollup (if you run multiple rollups)
+    # Defaults to "op-kurtosis"
+    name: "op-kurtosis"
+
+    # Triggering future forks in the network
+    # Fjord fork
+    # Defaults to 0 (genesis activation) - decimal value
+    # Offset is in seconds
+    fjord_time_offset: 0
+
+    # Granite fork
+    # Defaults to None - not activated - decimal value
+    # Offset is in seconds
+    granite_time_offset: 0
+
+    # Holocene fork
+    # Defaults to None - not activated - decimal value
+    # Offset is in seconds
+#    holocene_time_offset: ""
+
+    # Interop fork
+    # Defaults to None - not activated - decimal value
+    # Offset is in seconds
+#    interop_time_offset: ""
+
   additional_services:
     - blockscout
   op_contract_deployer_params:

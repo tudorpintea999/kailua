@@ -8,20 +8,22 @@ build:
   cargo build
 
 devnet-up:
-  kurtosis run github.com/hashcashier/optimism-package@admin-key --args-file devnet.yaml > devnet.log
+  kurtosis run github.com/ethpandaops/optimism-package --args-file devnet.yaml > devnet.log
 
 devnet-down:
   kurtosis clean -a
 
-devnet-deploy l1_rpc l1_beacon_rpc l2_rpc rollup_node_rpc owner_key verbosity="":
+devnet-deploy l1_rpc="http://127.0.0.1:8545" l1_beacon_rpc="http://127.0.0.1:5052" l2_rpc="http://127.0.0.1:9545" rollup_node_rpc="http://127.0.0.1:7545" registry="0xd801426328C609fCDe6E3B7a5623C27e8F607832" portal="0x6509f2a854BA7441039fCE3b959d5bAdd2fFCFCD" deployer="0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba" owner="0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6" guardian="0x2a871d0798f97d79848a013d4936a73bf4cc922c825d33c1cf7073dff6d409c6" verbosity="-vv":
   ./target/debug/kailua-cli deploy \
-      --deployer-key 0x39725efee3fb28614de3bacaffe4cc4bd8c436257e2c8bb887c4b5c4be45e76d \
-      --registry-contract 0x07a236d945c99EfD78D2b334Bf548CD4FEb541E4 \
+      --registry-contract {{registry}} \
+      --portal-contract {{portal}} \
       --l1-node-address {{l1_rpc}} \
       --l1-beacon-address {{l1_beacon_rpc}} \
       --l2-node-address {{l2_rpc}} \
       --op-node-address {{rollup_node_rpc}} \
-      --owner-key {{owner_key}} \
+      --deployer-key {{deployer}} \
+      --owner-key {{owner}} \
+      --guardian-key {{guardian}} \
       {{verbosity}}
 
 

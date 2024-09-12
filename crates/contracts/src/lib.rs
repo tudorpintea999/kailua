@@ -55,3 +55,11 @@ sol!(
     Safe,
     "foundry/out/FlatOPImportV1.4.0.sol/Safe.json"
 );
+
+sol! {
+    #[sol(rpc)]
+    interface OptimismPortal {
+        function setRespectedGameType(uint32 _gameType) external;
+        function guardian() public view returns (address);
+    }
+}

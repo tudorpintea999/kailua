@@ -51,6 +51,9 @@ pub struct DeployArgs {
     /// Address of the L1 `AnchorStateRegistry` contract
     #[clap(long)]
     pub registry_contract: String,
+    /// Address of the L1 `OptimismPortal` contract
+    #[clap(long)]
+    pub portal_contract: String,
 
     /// Secret key of L1 wallet to use for deploying contracts
     #[clap(long)]
@@ -58,4 +61,7 @@ pub struct DeployArgs {
     /// Secret key of L1 wallet that (indirectly) owns `DisputeGameFactory`
     #[clap(long)]
     pub owner_key: String,
+    /// Secret key of L1 guardian wallet
+    #[clap(long)]
+    pub guardian_key: String,
 }

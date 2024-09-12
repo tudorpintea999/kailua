@@ -67,11 +67,7 @@ pub async fn deploy(args: DeployArgs) -> anyhow::Result<()> {
         &owner_provider,
     );
     info!("DisputeGameFactory({:?})", dispute_game_factory.address());
-    let game_count = dispute_game_factory
-        .gameCount()
-        .call()
-        .await?
-        .gameCount_;
+    let game_count = dispute_game_factory.gameCount().call().await?.gameCount_;
     info!("There have been {game_count} games created using DisputeGameFactory");
     let dispute_game_factory_ownable = kailua_contracts::OwnableUpgradeable::new(
         anchor_state_registry.disputeGameFactory().call().await?._0,
@@ -105,7 +101,7 @@ pub async fn deploy(args: DeployArgs) -> anyhow::Result<()> {
     // Deploy FaultProofSetup contract
     // {
     info!("Deploying FaultProofSetup contract to L1 rpc.");
-    let fault_dispute_game_type = 0;
+    let fault_dispute_game_type = 254;
     let fault_proof_game_type = 1337;
     let fault_proof_setup_contract = kailua_contracts::FaultProofSetup::deploy(
         &deployer_provider,
@@ -123,46 +119,91 @@ pub async fn deploy(args: DeployArgs) -> anyhow::Result<()> {
     exec_safe_txn(
         dispute_game_factory.setInitBond(fault_proof_game_type, bond_value),
         &factory_owner_safe,
-        owner_address
+        owner_address,
     )
     .await
     .context("setInitBond 1 wei")?;
-    assert_eq!(dispute_game_factory
-                   .initBonds(fault_proof_game_type)
-                   .call()
-                   .await?
-                   .bond_, bond_value);
+    assert_eq!(
+        dispute_game_factory
+            .initBonds(fault_proof_game_type)
+            .call()
+            .await?
+            .bond_,
+        bond_value
+    );
     info!("Setting FaultProofSetup implementation address in DisputeGameFactory.");
     exec_safe_txn(
-        dispute_game_factory.setImplementation(fault_proof_game_type, *fault_proof_setup_contract.address()),
+        dispute_game_factory
+            .setImplementation(fault_proof_game_type, *fault_proof_setup_contract.address()),
         &factory_owner_safe,
-        owner_address
+        owner_address,
     )
     .await
     .context("setImplementation FaultProofSetup")?;
-    assert_eq!(dispute_game_factory
-                   .gameImpls(fault_proof_game_type)
-                   .call()
-                   .await?
-                   .impl_, *fault_proof_setup_contract.address());
+    assert_eq!(
+        dispute_game_factory
+            .gameImpls(fault_proof_game_type)
+            .call()
+            .await?
+            .impl_,
+        *fault_proof_setup_contract.address()
+    );
     // Create new setup game
-    let fault_dispute_anchor = anchor_state_registry.anchors(fault_dispute_game_type).call().await?;
+    let fault_dispute_anchor = anchor_state_registry
+        .anchors(fault_dispute_game_type)
+        .call()
+        .await?;
     let root_claim = fault_dispute_anchor._0;
     let extra_data = Bytes::from(fault_dispute_anchor._1.abi_encode_packed());
     // todo: don't setup if target anchor already exists
-    info!("Creating new FaultProofSetup game instance from {} ({}).", fault_dispute_anchor._1, fault_dispute_anchor._0);
-    dispute_game_factory
-        .create(fault_proof_game_type, root_claim, extra_data)
-        .value(bond_value)
-        .send()
+    let fault_proof_setup_address = dispute_game_factory
+        .games(fault_proof_game_type, root_claim, extra_data.clone())
+        .call()
         .await
-        .context("create FaultProofSetup (send)")?
-        .get_receipt()
+        .context("fault_proof_setup_address")?
+        .proxy_;
+    if fault_proof_setup_address == Address::ZERO {
+        info!(
+            "Creating new FaultProofSetup game instance from {} ({}).",
+            fault_dispute_anchor._1, fault_dispute_anchor._0
+        );
+        dispute_game_factory
+            .create(fault_proof_game_type, root_claim, extra_data.clone())
+            .value(bond_value)
+            .send()
+            .await
+            .context("create FaultProofSetup (send)")?
+            .get_receipt()
+            .await
+            .context("create FaultProofSetup (get_receipt)")?;
+    } else {
+        info!(
+            "Already found a game instance for anchor {} ({}).",
+            fault_dispute_anchor._1, fault_dispute_anchor._0
+        );
+    }
+    let fault_proof_setup_address = dispute_game_factory
+        .games(fault_proof_game_type, root_claim, extra_data)
+        .call()
         .await
-        .context("create FaultProofSetup (get_receipt)")?;
-
-
-
+        .context("fault_proof_setup_address")?
+        .proxy_;
+    let fault_proof_setup =
+        kailua_contracts::FaultProofSetup::new(fault_proof_setup_address, &owner_provider);
+    let status = fault_proof_setup.status().call().await?._0;
+    if status == 0 {
+        info!("Resolving FaultProofSetup instance");
+        fault_proof_setup
+            .resolve()
+            .send()
+            .await
+            .context("FaultProofSetup::resolve (send)")?
+            .get_receipt()
+            .await
+            .context("FaultProofSetup::resolve (get_receipt)")?;
+    } else {
+        info!("Game instance is not ongoing ({status})");
+    }
     // Deploy MockVerifier contract
     // {
     info!("Deploying MockVerifier contract to L1 rpc.");
@@ -184,13 +225,50 @@ pub async fn deploy(args: DeployArgs) -> anyhow::Result<()> {
         1337,
         Address::from_str(&args.registry_contract)?,
     )
-        .await
-        .context("FaultProofGame contract deployment error")?;
+    .await
+    .context("FaultProofGame contract deployment error")?;
     info!("{:?}", &fault_proof_game_contract);
     // }
+    // Update implementation to FaultProofGame
+    info!("Setting FaultProofGame implementation address in DisputeGameFactory.");
+    exec_safe_txn(
+        dispute_game_factory
+            .setImplementation(fault_proof_game_type, *fault_proof_game_contract.address()),
+        &factory_owner_safe,
+        owner_address,
+    )
+    .await
+    .context("setImplementation FaultProofGame")?;
+    // initialize guardian wallet
+    let guardian_signer = LocalSigner::from_str(&args.guardian_key)?;
+    let guardian_address = guardian_signer.address();
+    let guardian_wallet = EthereumWallet::from(guardian_signer);
+    let guardian_provider = ProviderBuilder::new()
+        .with_recommended_fillers()
+        .wallet(&guardian_wallet)
+        .on_http(args.l1_node_address.as_str().try_into()?); // Update the respectedGameType as the guardian
+    info!("Setting respectedGameType in OptimismPortal.");
+    let optimism_portal = kailua_contracts::OptimismPortal::new(
+        Address::from_str(&args.portal_contract)?,
+        &guardian_provider,
+    );
+    let portal_guardian_address = optimism_portal.guardian().call().await?._0;
+    if portal_guardian_address != guardian_address {
+        error!(
+            "OptimismPortal Guardian is {portal_guardian_address} instead of {guardian_address}."
+        );
+        exit(3);
+    }
+    optimism_portal
+        .setRespectedGameType(fault_proof_game_type)
+        .send()
+        .await
+        .context("setImplementation FaultProofGame")?
+        .get_receipt()
+        .await?;
+    info!("FraudProofGame installed.");
     Ok(())
 }
-
 pub async fn exec_safe_txn<
     T: Transport + Clone,
     P1: Provider<T, N>,
@@ -200,7 +278,7 @@ pub async fn exec_safe_txn<
 >(
     txn: SolCallBuilder<T, P1, C, N>,
     safe: &SafeInstance<T, P2, N>,
-    from: Address
+    from: Address,
 ) -> anyhow::Result<()> {
     let req = txn.into_transaction_request();
     let value = req.value().unwrap_or_default();
