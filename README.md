@@ -15,42 +15,24 @@ Kailua enables rollup operators to add a new `FaultProofGame` contract, compatib
 ## Prerequisites
 1. [rust](https://www.rust-lang.org/tools/install)
 2. [just](https://just.systems/man/en/chapter_1.html)
-3. [kurtosis](https://docs.kurtosis.com/install)
-4. [foundry](https://book.getfoundry.sh/getting-started/installation)
+3. [docker](https://www.docker.com/)
 
 ## Usage
 
 1. `just build`
    * Builds the cargo and foundry projects
-2. `just devnet-up > devnetlog.txt`
-   * Starts a local OP Stack devnet using kurtosis.
+2. `just devnet-install`
+   * Fetches `v1.9.1` of the `optimism` monorepo
+3. `just devnet-up > devnetlog.txt`
+   * Starts a local OP Stack devnet in docker.
    * Dumps the output into `devnetlog.txt` for inspection.
-   * Note down the below local endpoints from the final kurtosis output
-   ```text
-   =================== User Services ===================
-   Name                      Ports                              
-   el-1-geth-lighthouse      rpc: 8545/tcp  -> <L1_NODE>
-   cl-1-lighthouse-geth      http: 4000/tcp -> <L1_RPC>
-   op-el-1-op-geth-op-node   rpc: 8545/tcp  -> <L2_NODE>
-   op-cl-1-op-node-op-geth   http: 8547/tcp -> <L2_RPC> 
-   ```
-   * Note down the below private key for the admin account
-   ```text
-   Getting the admin private key
-   Command returned with exit code '0' and the following output: <ADMIN_KEY>
-   ```
-3. `just devnet-deploy <L1_NODE> <L1_RPC> <L2_NODE> <L2_RPC> <ADMIN_KEY>`
-   * Use the values from your terminal's kurtosis output in `devnetlog.txt`.
-   * Deploys a base `FaultProofGame` contract configured with your `RollupConfig` and guest image ids.
-4. Integrate `FaultProofGame` into your rollup's `DisputeGameFactory` using the following methods:
-   1. Call `setInitBond` to set the required bond for proposing outputs using the `FaultProofGame`. 
-   2. Call `setImplementation` to set the address of the `FaultProofGame` contract you've deployed.
-5. Invoke Kailua to generate proofs.
-6. After you're done, you can stop the devnet with `just devnet-down`
-
-## TODO:
-1. Embed immutable hash of `RollupConfig` in `FaultProofGame` and `fpvm`.
-2. 
+4. `just devnet-deploy`
+   * Assumes the default values of the local optimism devnet, but can take parameters.
+   * Upgrades the devnet to use the `FaultProofGame` contract.
+5. TODO: Invoke Kailua to play the fault proof game
+6. After you're done:
+   * `just devnet-down` to stop the running docker containers
+   * `just devnet-clean` to cleanup the docker volumes
 
 ## Questions, Feedback, and Collaborations
 
