@@ -24,11 +24,11 @@ Kailua enables rollup operators to add a new `FaultProofGame` contract, compatib
 2. `just devnet-install`
    * Fetches `v1.9.1` of the `optimism` monorepo
 3. `just devnet-up > devnetlog.txt`
-   * Starts a local OP Stack devnet in docker.
+   * Starts a local OP Stack devnet using docker.
    * Dumps the output into `devnetlog.txt` for inspection.
-4. `just devnet-deploy`
-   * Assumes the default values of the local optimism devnet, but can take parameters.
+4. `just devnet-upgrade`
    * Upgrades the devnet to use the `FaultProofGame` contract.
+   * Assumes the default values of the local optimism devnet, but can take parameters.
 5. TODO: Invoke Kailua to play the fault proof game
 6. After you're done:
    * `just devnet-down` to stop the running docker containers

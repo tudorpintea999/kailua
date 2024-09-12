@@ -8,7 +8,7 @@ build:
   cargo build
 
 kurtosis-up:
-  kurtosis run github.com/ethpandaops/optimism-package --args-file devnet.yaml > devnet.log
+  kurtosis run github.com/ethpandaops/optimism-package --args-file kurtosis.yaml > kurtosis.log
 
 kurtosis-down:
   kurtosis clean -a
@@ -17,7 +17,7 @@ devnet-install:
   git clone --depth 1 --branch v1.9.1 --recursive https://github.com/ethereum-optimism/optimism.git
 
 devnet-up:
-  DEVNET_L2OO=false DGF_ADDRESS=0x20B168142354Cee65a32f6D8cf3033E592299765 DG_TYPE=254 make -C optimism devnet-up > devnet.log
+  make -C optimism devnet-up > devnet.log
 
 devnet-down:
   make -C optimism devnet-down
@@ -25,7 +25,7 @@ devnet-down:
 devnet-clean:
   make -C optimism devnet-clean
 
-devnet-deploy l1_rpc="http://127.0.0.1:8545" l1_beacon_rpc="http://127.0.0.1:5052" l2_rpc="http://127.0.0.1:9545" rollup_node_rpc="http://127.0.0.1:7545" registry="0xd801426328C609fCDe6E3B7a5623C27e8F607832" portal="0x6509f2a854BA7441039fCE3b959d5bAdd2fFCFCD" deployer="0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba" owner="0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6" guardian="0x2a871d0798f97d79848a013d4936a73bf4cc922c825d33c1cf7073dff6d409c6" verbosity="-vv":
+devnet-upgrade l1_rpc="http://127.0.0.1:8545" l1_beacon_rpc="http://127.0.0.1:5052" l2_rpc="http://127.0.0.1:9545" rollup_node_rpc="http://127.0.0.1:7545" registry="0xd801426328C609fCDe6E3B7a5623C27e8F607832" portal="0x6509f2a854BA7441039fCE3b959d5bAdd2fFCFCD" deployer="0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba" owner="0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6" guardian="0x2a871d0798f97d79848a013d4936a73bf4cc922c825d33c1cf7073dff6d409c6" verbosity="-vv":
   ./target/debug/kailua-cli deploy \
       --registry-contract {{registry}} \
       --portal-contract {{portal}} \
