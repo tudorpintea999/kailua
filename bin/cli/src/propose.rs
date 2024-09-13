@@ -26,6 +26,7 @@ use std::str::FromStr;
 use std::time::Duration;
 use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
+use crate::FAULT_PROOF_GAME_TYPE;
 
 #[derive(clap::Args, Debug, Clone)]
 pub struct ProposeArgs {
@@ -35,15 +36,9 @@ pub struct ProposeArgs {
     /// Address of OP-NODE endpoint to use
     #[clap(long)]
     pub op_node_address: String,
-    /// Address of L2 JSON-RPC endpoint to use (eth and debug namespace required).
-    #[clap(long)]
-    pub l2_node_address: String,
     /// Address of L1 JSON-RPC endpoint to use (eth namespace required)
     #[clap(long)]
     pub l1_node_address: String,
-    /// Address of the L1 Beacon API endpoint to use.
-    #[clap(long)]
-    pub l1_beacon_address: Option<String>,
 
     /// Address of the L1 `AnchorStateRegistry` contract
     #[clap(long)]
@@ -68,7 +63,6 @@ pub struct Proposal {
 }
 
 pub async fn propose(args: ProposeArgs) -> anyhow::Result<()> {
-    let fault_proof_game_type = 1337;
     // initialize l2 connection
     let op_node_provider =
         ProviderBuilder::new().on_http(args.op_node_address.as_str().try_into()?);
@@ -76,6 +70,7 @@ pub async fn propose(args: ProposeArgs) -> anyhow::Result<()> {
     // initialize proposer wallet
     info!("Initializing proposer wallet.");
     let proposer_signer = LocalSigner::from_str(&args.proposer_key)?;
+    let proposer_address = proposer_signer.address();
     let proposer_wallet = EthereumWallet::from(proposer_signer);
     let proposer_provider = ProviderBuilder::new()
         .with_recommended_fillers()
@@ -101,7 +96,7 @@ pub async fn propose(args: ProposeArgs) -> anyhow::Result<()> {
     info!("There have been {game_count} games created using DisputeGameFactory");
     let fault_proof_game_implementation = kailua_contracts::FaultProofGame::new(
         dispute_game_factory
-            .gameImpls(fault_proof_game_type)
+            .gameImpls(FAULT_PROOF_GAME_TYPE)
             .call()
             .await?
             .impl_,
@@ -128,7 +123,7 @@ pub async fn propose(args: ProposeArgs) -> anyhow::Result<()> {
         .await?
         .maxClockDuration_;
     let bond_value = dispute_game_factory
-        .initBonds(fault_proof_game_type)
+        .initBonds(FAULT_PROOF_GAME_TYPE)
         .call()
         .await?
         .bond_;
@@ -158,7 +153,7 @@ pub async fn propose(args: ProposeArgs) -> anyhow::Result<()> {
                 .await
                 .context(format!("gameAtIndex {factory_index}/{game_count}"))?;
             // skip entries for other game types
-            if game_type != fault_proof_game_type {
+            if game_type != FAULT_PROOF_GAME_TYPE {
                 // sanity check
                 let game_contract =
                     kailua_contracts::FaultProofGame::new(game_address, &proposer_provider);
@@ -326,7 +321,10 @@ pub async fn propose(args: ProposeArgs) -> anyhow::Result<()> {
                 .await?;
             debug!("{:?}", &sync_status["safe_l2"]);
             let output_block_number = sync_status["safe_l2"]["number"].as_u64().unwrap();
-            if output_block_number < canonical_tip.output_block_number {
+            let balance = proposer_provider.get_balance(proposer_address).await?;
+            if balance < bond_value {
+                error!("INSUFFICIENT BALANCE!");
+            } else if output_block_number < canonical_tip.output_block_number {
                 warn!(
                     "op-node is still {} blocks behind safe l2 head.",
                     canonical_tip.output_block_number - output_block_number
@@ -355,14 +353,14 @@ pub async fn propose(args: ProposeArgs) -> anyhow::Result<()> {
                 ]
                 .concat();
                 dispute_game_factory
-                    .create(fault_proof_game_type, root_claim, Bytes::from(extra_data))
+                    .create(FAULT_PROOF_GAME_TYPE, root_claim, Bytes::from(extra_data))
                     .value(bond_value)
                     .send()
                     .await
-                    .context("create FaultProofSetup (send)")?
+                    .context("create FaultProofGame (send)")?
                     .get_receipt()
                     .await
-                    .context("create FaultProofSetup (get_receipt)")?;
+                    .context("create FaultProofGame (get_receipt)")?;
             }
         } else {
             warn!("No canonical proposal tip known")

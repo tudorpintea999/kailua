@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::validate::ValidateArgs;
 use alloy::contract::SolCallBuilder;
 use alloy::network::{Network, TransactionBuilder};
 use alloy::primitives::{Address, Uint, U256};
@@ -23,6 +24,9 @@ use propose::ProposeArgs;
 
 pub mod deploy;
 pub mod propose;
+pub mod validate;
+
+pub const FAULT_PROOF_GAME_TYPE: u32 = 1337;
 
 #[derive(clap::Parser, Debug, Clone)]
 #[command(name = "kailua-cli")]
@@ -31,6 +35,7 @@ pub mod propose;
 pub enum Cli {
     Deploy(DeployArgs),
     Propose(ProposeArgs),
+    Validate(ValidateArgs),
 }
 
 impl Cli {
@@ -38,6 +43,7 @@ impl Cli {
         match self {
             Cli::Deploy(args) => args.v,
             Cli::Propose(args) => args.v,
+            Cli::Validate(args) => args.v,
         }
     }
 }

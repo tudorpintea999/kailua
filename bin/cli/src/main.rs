@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use clap::Parser;
-use kailua_cli::{deploy::deploy, propose::propose, Cli};
+use kailua_cli::{deploy::deploy, propose::propose, validate::validate, Cli};
 use kona_host::init_tracing_subscriber;
 
 #[tokio::main]
@@ -24,6 +24,7 @@ async fn main() -> anyhow::Result<()> {
     match cli {
         Cli::Deploy(deploy_args) => deploy(deploy_args).await?,
         Cli::Propose(propose_args) => propose(propose_args).await?,
+        Cli::Validate(propose_args) => validate(propose_args).await?,
     }
     Ok(())
 }

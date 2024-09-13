@@ -24,6 +24,7 @@ use kailua_host::fetch_rollup_config;
 use std::process::exit;
 use std::str::FromStr;
 use tracing::{debug, error, info};
+use crate::FAULT_PROOF_GAME_TYPE;
 
 #[derive(clap::Args, Debug, Clone)]
 pub struct DeployArgs {
@@ -145,10 +146,9 @@ pub async fn deploy(args: DeployArgs) -> anyhow::Result<()> {
     // {
     info!("Deploying FaultProofSetup contract to L1 rpc.");
     let fault_dispute_game_type = 254;
-    let fault_proof_game_type = 1337;
     let fault_proof_setup_contract = kailua_contracts::FaultProofSetup::deploy(
         &deployer_provider,
-        fault_proof_game_type,
+        FAULT_PROOF_GAME_TYPE,
         fault_dispute_game_type,
         Address::from_str(&args.registry_contract)?,
     )
@@ -160,7 +160,7 @@ pub async fn deploy(args: DeployArgs) -> anyhow::Result<()> {
     info!("Setting FaultProofSetup initialization bond value in DisputeGameFactory.");
     let bond_value = U256::from(1);
     crate::exec_safe_txn(
-        dispute_game_factory.setInitBond(fault_proof_game_type, bond_value),
+        dispute_game_factory.setInitBond(FAULT_PROOF_GAME_TYPE, bond_value),
         &factory_owner_safe,
         owner_address,
     )
@@ -168,7 +168,7 @@ pub async fn deploy(args: DeployArgs) -> anyhow::Result<()> {
     .context("setInitBond 1 wei")?;
     assert_eq!(
         dispute_game_factory
-            .initBonds(fault_proof_game_type)
+            .initBonds(FAULT_PROOF_GAME_TYPE)
             .call()
             .await?
             .bond_,
@@ -177,7 +177,7 @@ pub async fn deploy(args: DeployArgs) -> anyhow::Result<()> {
     info!("Setting FaultProofSetup implementation address in DisputeGameFactory.");
     crate::exec_safe_txn(
         dispute_game_factory
-            .setImplementation(fault_proof_game_type, *fault_proof_setup_contract.address()),
+            .setImplementation(FAULT_PROOF_GAME_TYPE, *fault_proof_setup_contract.address()),
         &factory_owner_safe,
         owner_address,
     )
@@ -185,7 +185,7 @@ pub async fn deploy(args: DeployArgs) -> anyhow::Result<()> {
     .context("setImplementation FaultProofSetup")?;
     assert_eq!(
         dispute_game_factory
-            .gameImpls(fault_proof_game_type)
+            .gameImpls(FAULT_PROOF_GAME_TYPE)
             .call()
             .await?
             .impl_,
@@ -200,7 +200,7 @@ pub async fn deploy(args: DeployArgs) -> anyhow::Result<()> {
     let extra_data = Bytes::from(fault_dispute_anchor._1.abi_encode_packed());
     // Skip setup if target anchor already exists
     let fault_proof_setup_address = dispute_game_factory
-        .games(fault_proof_game_type, root_claim, extra_data.clone())
+        .games(FAULT_PROOF_GAME_TYPE, root_claim, extra_data.clone())
         .call()
         .await
         .context("fault_proof_setup_address")?
@@ -211,7 +211,7 @@ pub async fn deploy(args: DeployArgs) -> anyhow::Result<()> {
             fault_dispute_anchor._1, fault_dispute_anchor._0
         );
         dispute_game_factory
-            .create(fault_proof_game_type, root_claim, extra_data.clone())
+            .create(FAULT_PROOF_GAME_TYPE, root_claim, extra_data.clone())
             .value(bond_value)
             .send()
             .await
@@ -226,7 +226,7 @@ pub async fn deploy(args: DeployArgs) -> anyhow::Result<()> {
         );
     }
     let fault_proof_setup_address = dispute_game_factory
-        .games(fault_proof_game_type, root_claim, extra_data)
+        .games(FAULT_PROOF_GAME_TYPE, root_claim, extra_data)
         .call()
         .await
         .context("fault_proof_setup_address")?
@@ -265,7 +265,7 @@ pub async fn deploy(args: DeployArgs) -> anyhow::Result<()> {
         rollup_config_hash.into(),
         Uint::from(128),
         60,
-        1337,
+        FAULT_PROOF_GAME_TYPE,
         Address::from_str(&args.registry_contract)?,
     )
     .await
@@ -276,7 +276,7 @@ pub async fn deploy(args: DeployArgs) -> anyhow::Result<()> {
     info!("Setting FaultProofGame implementation address in DisputeGameFactory.");
     crate::exec_safe_txn(
         dispute_game_factory
-            .setImplementation(fault_proof_game_type, *fault_proof_game_contract.address()),
+            .setImplementation(FAULT_PROOF_GAME_TYPE, *fault_proof_game_contract.address()),
         &factory_owner_safe,
         owner_address,
     )
@@ -285,7 +285,7 @@ pub async fn deploy(args: DeployArgs) -> anyhow::Result<()> {
     // Update the respectedGameType as the guardian
     info!("Setting respectedGameType in OptimismPortal.");
     optimism_portal
-        .setRespectedGameType(fault_proof_game_type)
+        .setRespectedGameType(FAULT_PROOF_GAME_TYPE)
         .send()
         .await
         .context("setImplementation FaultProofGame")?

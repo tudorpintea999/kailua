@@ -38,12 +38,10 @@ devnet-upgrade l1_rpc="http://127.0.0.1:8545" l1_beacon_rpc="http://127.0.0.1:50
       --guardian-key {{guardian}} \
       {{verbosity}}
 
-devnet-propose l1_rpc="http://127.0.0.1:8545" l1_beacon_rpc="http://127.0.0.1:5052" l2_rpc="http://127.0.0.1:9545" rollup_node_rpc="http://127.0.0.1:7545" registry="0xd801426328C609fCDe6E3B7a5623C27e8F607832" deployer="0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba" verbosity="-vv":
+devnet-propose l1_rpc="http://127.0.0.1:8545" rollup_node_rpc="http://127.0.0.1:7545" registry="0xd801426328C609fCDe6E3B7a5623C27e8F607832" deployer="0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba" verbosity="-vv":
   ./target/debug/kailua-cli propose \
       --registry-contract {{registry}} \
       --l1-node-address {{l1_rpc}} \
-      --l1-beacon-address {{l1_beacon_rpc}} \
-      --l2-node-address {{l2_rpc}} \
       --op-node-address {{rollup_node_rpc}} \
       --proposer-key {{deployer}} \
       {{verbosity}}
