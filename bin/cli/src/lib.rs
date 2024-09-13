@@ -12,7 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use clap::ArgAction;
+use alloy::contract::SolCallBuilder;
+use alloy::network::{Network, TransactionBuilder};
+use alloy::primitives::{Address, Uint, U256};
+use alloy::providers::Provider;
+use alloy::transports::Transport;
+use deploy::DeployArgs;
+use kailua_contracts::Safe::SafeInstance;
+use propose::ProposeArgs;
+
+pub mod deploy;
+pub mod propose;
 
 #[derive(clap::Parser, Debug, Clone)]
 #[command(name = "kailua-cli")]
@@ -20,48 +30,53 @@ use clap::ArgAction;
 #[command(author, version, about, long_about = None)]
 pub enum Cli {
     Deploy(DeployArgs),
+    Propose(ProposeArgs),
 }
 
 impl Cli {
     pub fn verbosity(&self) -> u8 {
         match self {
             Cli::Deploy(args) => args.v,
+            Cli::Propose(args) => args.v,
         }
     }
 }
 
-#[derive(clap::Args, Debug, Clone)]
-pub struct DeployArgs {
-    #[arg(long, short, help = "Verbosity level (0-4)", action = ArgAction::Count)]
-    pub v: u8,
-
-    /// Address of OP-NODE endpoint to use
-    #[clap(long)]
-    pub op_node_address: String,
-    /// Address of L2 JSON-RPC endpoint to use (eth and debug namespace required).
-    #[clap(long)]
-    pub l2_node_address: String,
-    /// Address of L1 JSON-RPC endpoint to use (eth namespace required)
-    #[clap(long)]
-    pub l1_node_address: String,
-    /// Address of the L1 Beacon API endpoint to use.
-    #[clap(long)]
-    pub l1_beacon_address: Option<String>,
-
-    /// Address of the L1 `AnchorStateRegistry` contract
-    #[clap(long)]
-    pub registry_contract: String,
-    /// Address of the L1 `OptimismPortal` contract
-    #[clap(long)]
-    pub portal_contract: String,
-
-    /// Secret key of L1 wallet to use for deploying contracts
-    #[clap(long)]
-    pub deployer_key: String,
-    /// Secret key of L1 wallet that (indirectly) owns `DisputeGameFactory`
-    #[clap(long)]
-    pub owner_key: String,
-    /// Secret key of L1 guardian wallet
-    #[clap(long)]
-    pub guardian_key: String,
+pub async fn exec_safe_txn<
+    T: Transport + Clone,
+    P1: Provider<T, N>,
+    P2: Provider<T, N>,
+    C,
+    N: Network,
+>(
+    txn: SolCallBuilder<T, P1, C, N>,
+    safe: &SafeInstance<T, P2, N>,
+    from: Address,
+) -> anyhow::Result<()> {
+    let req = txn.into_transaction_request();
+    let value = req.value().unwrap_or_default();
+    safe.execTransaction(
+        req.to().unwrap(),
+        value,
+        req.input().cloned().unwrap_or_default(),
+        0,
+        Uint::from(req.gas_limit().unwrap_or_default()),
+        U256::ZERO,
+        U256::ZERO,
+        Address::ZERO,
+        Address::ZERO,
+        [
+            [0u8; 12].as_slice(),
+            from.as_slice(),
+            [0u8; 32].as_slice(),
+            [1u8].as_slice(),
+        ]
+        .concat()
+        .into(),
+    )
+    .send()
+    .await?
+    .get_receipt()
+    .await?;
+    Ok(())
 }
