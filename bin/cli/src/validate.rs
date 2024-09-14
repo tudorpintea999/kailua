@@ -24,7 +24,7 @@ use anyhow::{bail, Context};
 use kailua_contracts::IDisputeGameFactory::{gameAtIndexReturn, IDisputeGameFactoryInstance};
 use kailua_contracts::{FaultProofGame, IAnchorStateRegistry, IDisputeGameFactory};
 use std::collections::HashMap;
-use std::process::exit;
+use std::process::{exit, Command};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -116,10 +116,10 @@ pub async fn validate(args: ValidateArgs) -> anyhow::Result<()> {
         .await?
         .maxBlockCount_
         .to();
-    let proposal_channel_pair = DuplexChannel::new_pair(4096);
+    let channel_pair = DuplexChannel::new_pair(4096);
 
     let handle_proposals = spawn(handle_proposals(
-        proposal_channel_pair.1,
+        channel_pair.0,
         dispute_game_factory,
         op_node_provider,
     ));
@@ -133,11 +133,51 @@ pub async fn validate(args: ValidateArgs) -> anyhow::Result<()> {
 #[derive(Clone, Debug)]
 pub enum Message {
     Proposal(Proposal),
-    // todo: Proof
+    Proof(Proposal, Vec<u8>),
+}
+
+pub async fn handle_proofs(mut channel: DuplexChannel<Message>) -> anyhow::Result<()> {
+    loop {
+        // Dequeue messages
+        let message = channel.receiver.recv().await.expect("channel closed");
+        let Message::Proposal(proposal) = message else {
+            bail!("Unexpected message type.");
+        };
+        // todo: read kailua-host and kailua-client paths from env var
+        let kailua_host = "./target/debug/kailua-host";
+        let kailua_client = "./target/debug/kailua-client";
+        let proving_task = Command::new(kailua_host)
+            .args(vec![
+                // todo: add below data to proposal
+                "--l1-head",         // l1 head from on-chain proposal
+                "--l2-head",         // l2 starting block from on-chain proposal
+                "--l2-output-root",  // output root as of l2 starting block
+                "--l2-claim",        // proposed output root
+                "--l2-block-number", // proposed block number
+                // todo: derive parameters from args
+                "--l2-chain-id",
+                "--l1-node-address",
+                "--l1-beacon-address",
+                "--l2-node-address",
+                "--op-node-address",
+                // todo: read data-dir path from env var
+                "--exec",
+                kailua_client,
+                "--data-dir",
+                ".localtestdata",
+            ])
+            .output()
+            .context("Executing kailua-host.")?;
+        // todo: read the last bytes of stdout as the output
+        channel
+            .sender
+            .send(Message::Proof(proposal, proving_task.stdout))
+            .await?;
+    }
 }
 
 pub async fn handle_proposals<T: Transport + Clone, P: Provider<T, N>, N: Network>(
-    _channel: DuplexChannel<Proposal>,
+    _channel: DuplexChannel<Message>,
     dispute_game_factory: IDisputeGameFactoryInstance<T, P, N>,
     op_node_provider: ReqwestProvider,
 ) -> anyhow::Result<()> {
