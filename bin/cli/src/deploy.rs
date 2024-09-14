@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::FAULT_PROOF_GAME_TYPE;
 use alloy::network::{EthereumWallet, TxSigner};
 use alloy::primitives::{Address, Bytes, Uint, U256};
 use alloy::providers::ProviderBuilder;
@@ -24,7 +25,6 @@ use kailua_host::fetch_rollup_config;
 use std::process::exit;
 use std::str::FromStr;
 use tracing::{debug, error, info};
-use crate::FAULT_PROOF_GAME_TYPE;
 
 #[derive(clap::Args, Debug, Clone)]
 pub struct DeployArgs {

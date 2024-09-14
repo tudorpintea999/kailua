@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::FAULT_PROOF_GAME_TYPE;
 use alloy::network::{EthereumWallet, Network};
 use alloy::primitives::{Address, Bytes, FixedBytes, U256};
 use alloy::providers::{Provider, ProviderBuilder};
@@ -26,7 +27,6 @@ use std::str::FromStr;
 use std::time::Duration;
 use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
-use crate::FAULT_PROOF_GAME_TYPE;
 
 #[derive(clap::Args, Debug, Clone)]
 pub struct ProposeArgs {

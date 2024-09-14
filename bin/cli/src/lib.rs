@@ -22,6 +22,7 @@ use deploy::DeployArgs;
 use kailua_contracts::Safe::SafeInstance;
 use propose::ProposeArgs;
 
+pub mod channel;
 pub mod deploy;
 pub mod propose;
 pub mod validate;

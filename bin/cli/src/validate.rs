@@ -12,20 +12,25 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::channel::DuplexChannel;
+use crate::propose::Proposal;
+use crate::FAULT_PROOF_GAME_TYPE;
+use alloy::network::{EthereumWallet, Network};
+use alloy::primitives::{Address, FixedBytes, U256};
+use alloy::providers::{Provider, ProviderBuilder, ReqwestProvider};
+use alloy::signers::local::LocalSigner;
+use alloy::transports::Transport;
+use anyhow::{bail, Context};
+use kailua_contracts::IDisputeGameFactory::{gameAtIndexReturn, IDisputeGameFactoryInstance};
+use kailua_contracts::{FaultProofGame, IAnchorStateRegistry, IDisputeGameFactory};
 use std::collections::HashMap;
 use std::process::exit;
 use std::str::FromStr;
+use std::sync::Arc;
 use std::time::Duration;
-use alloy::network::EthereumWallet;
-use alloy::primitives::{Address, FixedBytes, U256};
-use alloy::providers::{Provider, ProviderBuilder};
-use alloy::signers::local::LocalSigner;
-use anyhow::{bail, Context};
 use tokio::time::sleep;
+use tokio::{spawn, try_join};
 use tracing::{debug, error, info, warn};
-use kailua_contracts::IDisputeGameFactory::gameAtIndexReturn;
-use crate::FAULT_PROOF_GAME_TYPE;
-use crate::propose::Proposal;
 
 #[derive(clap::Args, Debug, Clone)]
 pub struct ValidateArgs {
@@ -62,21 +67,23 @@ pub async fn validate(args: ValidateArgs) -> anyhow::Result<()> {
     // initialize validator wallet
     info!("Initializing validator wallet.");
     let validator_signer = LocalSigner::from_str(&args.validator_key)?;
-    let validator_address = validator_signer.address();
+    let _validator_address = validator_signer.address();
     let validator_wallet = EthereumWallet::from(validator_signer);
-    let validator_provider = ProviderBuilder::new()
-        .with_recommended_fillers()
-        .wallet(&validator_wallet)
-        .on_http(args.l1_node_address.as_str().try_into()?);
+    let validator_provider = Arc::new(
+        ProviderBuilder::new()
+            .with_recommended_fillers()
+            .wallet(validator_wallet)
+            .on_http(args.l1_node_address.as_str().try_into()?),
+    );
     // Init registry and factory contracts
-    let anchor_state_registry = kailua_contracts::IAnchorStateRegistry::new(
+    let anchor_state_registry = IAnchorStateRegistry::new(
         Address::from_str(&args.registry_contract)?,
-        &validator_provider,
+        validator_provider.clone(),
     );
     info!("AnchorStateRegistry({:?})", anchor_state_registry.address());
-    let dispute_game_factory = kailua_contracts::IDisputeGameFactory::new(
+    let dispute_game_factory = IDisputeGameFactory::new(
         anchor_state_registry.disputeGameFactory().call().await?._0,
-        &validator_provider,
+        validator_provider.clone(),
     );
     info!("DisputeGameFactory({:?})", dispute_game_factory.address());
     let game_count: u64 = dispute_game_factory
@@ -86,13 +93,13 @@ pub async fn validate(args: ValidateArgs) -> anyhow::Result<()> {
         .gameCount_
         .to();
     info!("There have been {game_count} games created using DisputeGameFactory");
-    let fault_proof_game_implementation = kailua_contracts::FaultProofGame::new(
+    let fault_proof_game_implementation = FaultProofGame::new(
         dispute_game_factory
             .gameImpls(FAULT_PROOF_GAME_TYPE)
             .call()
             .await?
             .impl_,
-        &validator_provider,
+        validator_provider.clone(),
     );
     info!(
         "FaultProofGame({:?})",
@@ -103,12 +110,37 @@ pub async fn validate(args: ValidateArgs) -> anyhow::Result<()> {
         exit(1);
     }
     // load constants
-    let max_proposal_span: u64 = fault_proof_game_implementation
+    let _max_proposal_span: u64 = fault_proof_game_implementation
         .maxBlockCount()
         .call()
         .await?
         .maxBlockCount_
         .to();
+    let proposal_channel_pair = DuplexChannel::new_pair(4096);
+
+    let handle_proposals = spawn(handle_proposals(
+        proposal_channel_pair.1,
+        dispute_game_factory,
+        op_node_provider,
+    ));
+
+    let (proposals_task,) = try_join!(handle_proposals)?;
+    proposals_task.context("handle_proposals")?;
+
+    Ok(())
+}
+
+#[derive(Clone, Debug)]
+pub enum Message {
+    Proposal(Proposal),
+    // todo: Proof
+}
+
+pub async fn handle_proposals<T: Transport + Clone, P: Provider<T, N>, N: Network>(
+    _channel: DuplexChannel<Proposal>,
+    dispute_game_factory: IDisputeGameFactoryInstance<T, P, N>,
+    op_node_provider: ReqwestProvider,
+) -> anyhow::Result<()> {
     let bond_value = dispute_game_factory
         .initBonds(FAULT_PROOF_GAME_TYPE)
         .call()
@@ -144,8 +176,7 @@ pub async fn validate(args: ValidateArgs) -> anyhow::Result<()> {
             }
             info!("Processing proposal at factory index {factory_index}");
             // Retrieve basic data
-            let game_contract =
-                kailua_contracts::FaultProofGame::new(game_address, &validator_provider);
+            let game_contract = FaultProofGame::new(game_address, dispute_game_factory.provider());
             let output_root = game_contract.rootClaim().call().await?.rootClaim_;
             let output_block_number = game_contract.l2BlockNumber().call().await?.l2BlockNumber_;
             let resolved = game_contract.resolvedAt().call().await?._0 > 0;
@@ -212,9 +243,27 @@ pub async fn validate(args: ValidateArgs) -> anyhow::Result<()> {
                 resolved,
                 correct,
             });
+            // todo: scan ancestry line and skip challenge if at least one invalid ancestor is challenged.
+            if !correct && !challenged {
+                // Issue challenge against incorrect unchallenged proposals
+                game_contract
+                    .challenge()
+                    .value(bond_value / U256::from(2))
+                    .send()
+                    .await
+                    .context("challenge (send)")?
+                    .get_receipt()
+                    .await
+                    .context("challenge (get_receipt)")?;
+                // todo: enqueue
+            }
         }
         search_start_index = game_count;
         // todo: compute and publish proofs
+        // priority goes to fault proofs for games where one is the challenger
+        // secondary priority is validity proofs for mis-challenged games
+        // this should happen on a separate task/thread to enable on-chain challenges to resume
+
         // Wait for new data
         sleep(Duration::from_secs(1)).await;
     }
