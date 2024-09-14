@@ -154,6 +154,9 @@ contract FaultProofGame is Clone, IDisputeGame {
     /// @notice The game challenger address
     address public challenger;
 
+    /// @notice The game prover address
+    address public prover;
+
     /// @notice Initializes the contract
     /// @dev This function may only be called once.
     function initialize() external payable {
@@ -228,7 +231,7 @@ contract FaultProofGame is Clone, IDisputeGame {
         if (proofStatus != ProofStatus.NONE) revert AlreadyProven();
 
         // INVARIANT: Can only prove fault after naming a challenger
-        if (isFaultProof && challenger == address(0)) revert UnchallengedGame();
+        if (isFaultProof && challenger == address(0x0)) revert UnchallengedGame();
 
         // Construct the expected journal
         bytes32 journalDigest = sha256(
@@ -254,6 +257,9 @@ contract FaultProofGame is Clone, IDisputeGame {
         // Update proof status
         emit Proven(proofStatus = isFaultProof ? ProofStatus.FAULT : ProofStatus.INTEGRITY);
 
+        // Set the game's prover address
+        prover = msg.sender;
+
         // Set the game's proving timestamp
         provenAt = Timestamp.wrap(uint64(block.timestamp));
     }
@@ -271,30 +277,20 @@ contract FaultProofGame is Clone, IDisputeGame {
         GameStatus parentGameStatus = parentGame().status();
         if (parentGameStatus == GameStatus.IN_PROGRESS) revert OutOfOrderResolution();
 
-        address bondRecipient;
         if (parentGameStatus == GameStatus.CHALLENGER_WINS) {
-            // Resolve based on invalid parent game
-            if (challenger == address(0)) revert UnchallengedGame();
+            // Resolve based on invalid parent game (todo: optimize this challenging requirement)
+            if (challenger == address(0x0)) revert UnchallengedGame();
 
             // Set the status in favor of the challenger
             status_ = GameStatus.CHALLENGER_WINS;
-
-            // Set the challenger as the recipient
-            bondRecipient = challenger;
         } else if (proofStatus != ProofStatus.NONE) {
             // Resolve based on proofStatus
             if (proofStatus == ProofStatus.FAULT) {
                 // Set the status in favor of the challenger
                 status_ = GameStatus.CHALLENGER_WINS;
-
-                // Set the challenger as the recipient
-                bondRecipient = challenger;
             } else if (proofStatus == ProofStatus.INTEGRITY) {
                 // Set the status in favor of the proposer
                 status_ = GameStatus.DEFENDER_WINS;
-
-                // Set the proposer as the recipient
-                bondRecipient = gameCreator();
             }
         } else {
             // INVARIANT: Cannot resolve an unproven game unless the clock of its would-be proof has expired
@@ -302,14 +298,22 @@ contract FaultProofGame is Clone, IDisputeGame {
 
             // Optimistically resolve in favor of the proposer
             status_ = GameStatus.DEFENDER_WINS;
-
-            // Set the proposer as the recipient
-            bondRecipient = gameCreator();
         }
 
-        // Pay bond to recipient
-        payBond(bondRecipient);
-        // Update game status
+        if (status_ == GameStatus.DEFENDER_WINS) {
+            // If the proposal passes, we repay the proposer
+            pay(bond, gameCreator());
+
+            // If a validity proof was submitted, we pay the remainder to the prover
+            if (prover != address(0x0)) {
+                pay(address(this).balance, prover);
+            }
+        } else if (status_ == GameStatus.CHALLENGER_WINS) {
+            // If the proposal fails, the challenger claims the entire pot
+            pay(address(this).balance, challenger);
+        }
+
+        // Update game status in storage
         status = status_;
 
         // Mark resolution timestamp
@@ -416,13 +420,15 @@ contract FaultProofGame is Clone, IDisputeGame {
     /// @notice Returns the required bond for a challenge.
     /// @return requiredBond_ The required ETH bond in wei.
     function getRequiredBond() public view returns (uint256 requiredBond_) {
-        // 3x cheaper to challenge than propose, where x is worst case proving cost
-        requiredBond_ = bond / 3;
+        // 2x cheaper to challenge than propose, where x is worst case proving cost
+        // challenger of bad proposal will double their money
+        // prover of good proposal will be repaid for the validity proof
+        requiredBond_ = bond / 2;
     }
 
-    /// @notice Pays the entire contract balance to the bond recipient
-    function payBond(address recipient) internal {
-        (bool success,) = recipient.call{value: address(this).balance}(hex"");
+    /// @notice Transfers ETH from the contract's balance to the recipient
+    function pay(uint256 amount, address recipient) internal {
+        (bool success,) = recipient.call{value: amount}(hex"");
         if (!success) revert BondTransferFailed();
     }
 }
