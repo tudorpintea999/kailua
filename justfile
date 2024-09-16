@@ -5,7 +5,7 @@ default:
   @just --list
 
 build:
-  cargo build
+  cargo build --release
 
 kurtosis-up:
   kurtosis run github.com/ethpandaops/optimism-package --args-file kurtosis.yaml > kurtosis.log
@@ -15,6 +15,9 @@ kurtosis-down:
 
 devnet-install:
   git clone --depth 1 --branch v1.9.1 --recursive https://github.com/ethereum-optimism/optimism.git
+
+devnet-build:
+  cargo build -F fault
 
 devnet-up:
   make -C optimism devnet-up > devnet.log

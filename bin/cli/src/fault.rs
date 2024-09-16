@@ -52,7 +52,11 @@ pub async fn fault(args: ProposeArgs) -> anyhow::Result<()> {
     // get proposal parent
     let games_count = dispute_game_factory.gameCount().call().await?.gameCount_;
     let first_game_data = dispute_game_factory
-        .findLatestGames(FAULT_PROOF_GAME_TYPE, games_count - U256::from(1), U256::from(1))
+        .findLatestGames(
+            FAULT_PROOF_GAME_TYPE,
+            games_count - U256::from(1),
+            games_count,
+        )
         .call()
         .await?
         .games_
@@ -98,7 +102,9 @@ pub async fn fault(args: ProposeArgs) -> anyhow::Result<()> {
         .get_receipt()
         .await
         .context("create FaultProofGame (get_receipt)")?;
-    info!("Submitted faulty proposal at index {games_count}.");
+    info!(
+        "Submitted faulty proposal at index {games_count} with parent at index {first_game_index}."
+    );
 
     Ok(())
 }

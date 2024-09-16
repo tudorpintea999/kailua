@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::FAULT_PROOF_GAME_TYPE;
+use crate::{output_at_block, FAULT_PROOF_GAME_TYPE};
 use alloy::network::{EthereumWallet, Network};
 use alloy::primitives::{Address, Bytes, FixedBytes, U256};
 use alloy::providers::{Provider, ProviderBuilder};
@@ -160,16 +160,8 @@ pub async fn propose(args: ProposeArgs) -> anyhow::Result<()> {
                 let output_root = game_contract.rootClaim().call().await?.rootClaim_;
                 let output_block_number =
                     game_contract.l2BlockNumber().call().await?.l2BlockNumber_;
-                let output_at_block: serde_json::Value = op_node_provider
-                    .client()
-                    .request(
-                        "optimism_outputAtBlock",
-                        (format!("0x{:x}", output_block_number),),
-                    )
-                    .await
-                    .context(format!("optimism_outputAtBlock {output_block_number}"))?;
                 let local_output_root =
-                    FixedBytes::<32>::from_str(output_at_block["outputRoot"].as_str().unwrap())?;
+                    output_at_block(&op_node_provider, output_block_number.to()).await?;
                 if local_output_root != output_root {
                     warn!("Encountered a bad proposal of height {output_block_number} under game type {game_type}.");
                 };
@@ -208,17 +200,8 @@ pub async fn propose(args: ProposeArgs) -> anyhow::Result<()> {
                 _ => bail!("Unexpected extra data length from game {game_address} at factory index {factory_index}")
             };
             // Decide correctness according to op-node
-            let output_at_block: serde_json::Value = op_node_provider
-                .client()
-                .request(
-                    "optimism_outputAtBlock",
-                    (format!("0x{:x}", output_block_number),),
-                )
-                .await
-                .context(format!("optimism_outputAtBlock {output_block_number}"))?;
-            debug!("{:?}", &output_at_block);
             let local_output_root =
-                FixedBytes::<32>::from_str(output_at_block["outputRoot"].as_str().unwrap())?;
+                output_at_block(&op_node_provider, output_block_number.to()).await?;
             let correct = if local_output_root != output_root {
                 // op-node disagrees, so this must be invalid
                 warn!("Encountered an incorrect proposal {output_root} for block {output_block_number}! Expected {local_output_root}.");
@@ -319,7 +302,7 @@ pub async fn propose(args: ProposeArgs) -> anyhow::Result<()> {
                 .client()
                 .request_noparams("optimism_syncStatus")
                 .await?;
-            debug!("{:?}", &sync_status["safe_l2"]);
+            debug!("sync_status[safe_l2] {:?}", &sync_status["safe_l2"]);
             let output_block_number = sync_status["safe_l2"]["number"].as_u64().unwrap();
             let balance = proposer_provider.get_balance(proposer_address).await?;
             if balance < bond_value {
@@ -343,7 +326,7 @@ pub async fn propose(args: ProposeArgs) -> anyhow::Result<()> {
                         (format!("0x{:x}", proposed_block_number),),
                     )
                     .await?;
-                debug!("{:?}", &output_at_block);
+                debug!("output_at_block {:?}", &output_at_block);
                 let root_claim =
                     FixedBytes::<32>::from_str(output_at_block["outputRoot"].as_str().unwrap())?;
                 info!("Proposing output {root_claim} at {proposed_block_number}.");

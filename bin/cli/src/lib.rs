@@ -15,12 +15,15 @@
 use crate::validate::ValidateArgs;
 use alloy::contract::SolCallBuilder;
 use alloy::network::{Network, TransactionBuilder};
-use alloy::primitives::{Address, Uint, U256};
-use alloy::providers::Provider;
+use alloy::primitives::{Address, FixedBytes, Uint, U256};
+use alloy::providers::{Provider, ReqwestProvider};
 use alloy::transports::Transport;
+use anyhow::Context;
 use deploy::DeployArgs;
 use kailua_contracts::Safe::SafeInstance;
 use propose::ProposeArgs;
+use std::str::FromStr;
+use tracing::debug;
 
 pub mod channel;
 pub mod deploy;
@@ -89,4 +92,22 @@ pub async fn exec_safe_txn<
     .get_receipt()
     .await?;
     Ok(())
+}
+
+pub async fn output_at_block(
+    op_node_provider: &ReqwestProvider,
+    output_block_number: u64,
+) -> anyhow::Result<FixedBytes<32>> {
+    let output_at_block: serde_json::Value = op_node_provider
+        .client()
+        .request(
+            "optimism_outputAtBlock",
+            (format!("0x{:x}", output_block_number),),
+        )
+        .await
+        .context(format!("optimism_outputAtBlock {output_block_number}"))?;
+    debug!("optimism_outputAtBlock {:?}", &output_at_block);
+    Ok(FixedBytes::<32>::from_str(
+        output_at_block["outputRoot"].as_str().unwrap(),
+    )?)
 }

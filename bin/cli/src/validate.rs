@@ -14,7 +14,7 @@
 
 use crate::channel::DuplexChannel;
 use crate::propose::Proposal;
-use crate::FAULT_PROOF_GAME_TYPE;
+use crate::{output_at_block, FAULT_PROOF_GAME_TYPE};
 use alloy::network::EthereumWallet;
 use alloy::primitives::{Address, FixedBytes, U256};
 use alloy::providers::{Provider, ProviderBuilder};
@@ -25,12 +25,13 @@ use kailua_contracts::{FaultProofGame, IAnchorStateRegistry, IDisputeGameFactory
 use kailua_host::fetch_rollup_config;
 use std::collections::HashMap;
 use std::env;
-use std::process::{exit, Command};
+use std::process::{exit};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::sleep;
 use tokio::{spawn, try_join};
+use tokio::process::Command;
 use tracing::{debug, error, info, warn};
 
 #[derive(clap::Args, Debug, Clone)]
@@ -81,7 +82,7 @@ pub enum Message {
     Proposal {
         local_index: usize,
         l1_head: FixedBytes<32>,
-        l2_head: u64,
+        l2_head: FixedBytes<32>,
         l2_output_root: FixedBytes<32>,
         l2_block_number: u64,
         l2_claim: FixedBytes<32>,
@@ -117,7 +118,7 @@ pub async fn handle_proofs(
         // todo: priority goes to fault proofs for games where one is the challenger
         // todo: secondary priority is validity proofs for mis-challenged games
         let Message::Proposal {
-            local_index: game_index,
+            local_index,
             l1_head,
             l2_head,
             l2_output_root,
@@ -131,18 +132,24 @@ pub async fn handle_proofs(
         else {
             bail!("Unexpected message type.");
         };
+        info!("Processing proof for local index {local_index}.");
         // Prepare kailua-host parameters
         let l1_head = l1_head.to_string();
         let l2_head = l2_head.to_string();
         let l2_output_root = l2_output_root.to_string();
         let l2_claim = l2_claim.to_string();
         let l2_block_number = l2_block_number.to_string();
-        let proving_args = vec![
+        let verbosity = [
+            String::from("-"),
+            (0..args.v).map(|_| 'v').collect::<String>(),
+        ]
+        .concat();
+        let mut proving_args = vec![
             "--l1-head", // l1 head from on-chain proposal
             &l1_head,
-            "--l2-head", // l2 starting block from on-chain proposal
+            "--l2-head", // l2 starting block hash from on-chain proposal
             &l2_head,
-            "--l2-output-root", // output root as of l2 starting block
+            "--l2-output-root", // l2 starting output root
             &l2_output_root,
             "--l2-claim", // proposed output root
             &l2_claim,
@@ -163,19 +170,26 @@ pub async fn handle_proofs(
             "--data-dir", // path to cache
             &data_dir,
         ];
-        debug!("{:?}", &proving_args);
+        // verbosity level
+        if args.v > 0 {
+            proving_args.push(&verbosity);
+        }
+        debug!("proving_args {:?}", &proving_args);
         // Prove via kailua-host (re dev mode/bonsai: env vars inherited!)
         let proving_task = Command::new(&kailua_host)
             .args(proving_args)
-            .output()
-            .context("Executing kailua-host.")?;
+            .spawn()
+            .context("Invoking kailua-host")?
+            .wait_with_output()
+            .await?;
         // todo: take the last bytes of proving_task.stdout as the output
         let proof = proving_task.stdout;
-        debug!("{:?}", &proof);
+        debug!("proof {:?}", &proof);
         channel
             .sender
-            .send(Message::Proof(game_index, proof))
+            .send(Message::Proof(local_index, proof))
             .await?;
+        info!("Proof for local index {local_index} complete.");
     }
 }
 
@@ -186,6 +200,8 @@ pub async fn handle_proposals(
     // connect to l2 cl node
     let op_node_provider =
         ProviderBuilder::new().on_http(args.op_node_address.as_str().try_into()?);
+    let l2_node_provider =
+        ProviderBuilder::new().on_http(args.l2_node_address.as_str().try_into()?);
     // initialize validator wallet
     info!("Initializing validator wallet.");
     let validator_signer = LocalSigner::from_str(&args.validator_key)?;
@@ -303,17 +319,8 @@ pub async fn handle_proposals(
                 _ => bail!("Unexpected extra data length from game {game_address} at factory index {factory_index}")
             };
             // Decide correctness according to op-node
-            let output_at_block: serde_json::Value = op_node_provider
-                .client()
-                .request(
-                    "optimism_outputAtBlock",
-                    (format!("0x{:x}", output_block_number),),
-                )
-                .await
-                .context(format!("optimism_outputAtBlock {output_block_number}"))?;
-            debug!("{:?}", &output_at_block);
             let local_output_root =
-                FixedBytes::<32>::from_str(output_at_block["outputRoot"].as_str().unwrap())?;
+                output_at_block(&op_node_provider, output_block_number.to()).await?;
             let correct = if local_output_root != output_root {
                 // op-node disagrees, so this must be invalid
                 warn!("Encountered an incorrect proposal {output_root} for block {output_block_number}! Expected {local_output_root}.");
@@ -356,21 +363,68 @@ pub async fn handle_proposals(
                 correct,
             });
             // enqueue proving for any bad proposals challenged by this validator
-            if challenged && game_contract.challenger().call().await?._0 == validator_address {
+            if challenged
+                && !proven
+                && game_contract.challenger().call().await?._0 == validator_address
+            {
                 // Read additional data for Kona invocation
-                info!("Requesting proof.");
-                let l1_head = game_contract.l1Head().call().await?.l1Head_;
-                let l2_head = game_contract
+                info!("Requesting proof for local index {local_index}.");
+                let l1_head = game_contract
+                    .l1Head()
+                    .call()
+                    .await
+                    .context("l1Head")?
+                    .l1Head_;
+                debug!("l1_head {:?}", &l1_head);
+                let l2_head_number: u64 = game_contract
                     .startingBlockNumber()
                     .call()
-                    .await?
+                    .await
+                    .context("startingBlockNumber")?
                     .startingBlockNumber_
                     .to();
+                debug!("l2_head_number {:?}", &l2_head_number);
+                let l2_head_block: serde_json::Value = l2_node_provider
+                    .client()
+                    .request(
+                        "eth_getBlockByNumber",
+                        (format!("0x{:x}", l2_head_number), false),
+                    )
+                    .await
+                    .context(format!("eth_getBlockByNumber {l2_head_number}"))?;
+                debug!("l2_head_block {:?}", &l2_head_block);
+                let l2_head = FixedBytes::<32>::from_str(
+                    l2_head_block["hash"]
+                        .as_str()
+                        .expect("Failed to parse block hash"),
+                )?;
+                debug!("l2_head {:?}", &l2_head);
                 let l2_output_root = game_contract
                     .startingRootHash()
                     .call()
                     .await?
                     .startingRootHash_;
+                let local_output_root = output_at_block(&op_node_provider, l2_head_number).await?;
+                // We can only resolve this challenged game once the bad parent is resolved, so we skip proving.
+                if l2_output_root != local_output_root {
+                    warn!("Skipping proving for challenged local index {local_index} with bad parent output.");
+                    let parent = &proposal_tree[parent_local_index];
+                    if parent.challenged {
+                        info!(
+                            "{} parent of local index {local_index} is already challenged.",
+                            parent.correct
+                        );
+                    } else {
+                        error!(
+                            "{} parent of local index {local_index} is NOT challenged!",
+                            parent.correct
+                        );
+                    }
+                    if parent.correct {
+                        error!("Parent {parent_local_index} of {local_index} is correct!");
+                    }
+                    continue;
+                }
                 // Message proving task
                 channel
                     .sender
@@ -399,7 +453,7 @@ pub async fn handle_proposals(
             let proposal = &proposal_tree[local_index];
             let game_contract =
                 FaultProofGame::new(proposal.game_address, dispute_game_factory.provider());
-            info!("Submitting proof against game in {}", proposal.game_address);
+            info!("Utilizing proof against game in {}", proposal.game_address);
             // only prove unproven games
             if game_contract.proofStatus().call().await?._0 == 0 {
                 game_contract
@@ -408,6 +462,9 @@ pub async fn handle_proposals(
                     .await?
                     .get_receipt()
                     .await?;
+                info!("Proof submitted!");
+            } else {
+                warn!("Skipping proof submission for already proven game at local index {local_index}.");
             }
         }
 

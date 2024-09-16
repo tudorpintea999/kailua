@@ -19,10 +19,10 @@ Kailua enables rollup operators to add a new `FaultProofGame` contract, compatib
 
 ## Usage
 
-1. `just build`
-   * Builds the cargo and foundry projects
-2. `just devnet-install`
+1. `just devnet-install`
    * Fetches `v1.9.1` of the `optimism` monorepo
+2. `just devnet-build`
+   * Builds the local cargo and foundry projects
 3. `just devnet-up > devnetlog.txt`
    * Starts a local OP Stack devnet using docker.
    * Dumps the output into `devnetlog.txt` for inspection.

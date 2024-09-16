@@ -140,7 +140,7 @@ pub async fn deploy(args: DeployArgs) -> anyhow::Result<()> {
     let config = fetch_rollup_config(&args.op_node_address, &args.l2_node_address, None).await?;
     let rollup_config_hash = config_hash(&config).expect("Configuration hash derivation error");
     info!("RollupConfigHash({})", hex::encode(rollup_config_hash));
-    debug!("{:?}", &config);
+    debug!("config {:?}", &config);
 
     // Deploy FaultProofSetup contract
     // {
