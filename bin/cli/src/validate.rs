@@ -15,15 +15,16 @@
 use crate::channel::DuplexChannel;
 use crate::propose::Proposal;
 use crate::FAULT_PROOF_GAME_TYPE;
-use alloy::network::{EthereumWallet, Network};
+use alloy::network::EthereumWallet;
 use alloy::primitives::{Address, FixedBytes, U256};
-use alloy::providers::{Provider, ProviderBuilder, ReqwestProvider};
+use alloy::providers::{Provider, ProviderBuilder};
 use alloy::signers::local::LocalSigner;
-use alloy::transports::Transport;
 use anyhow::{bail, Context};
-use kailua_contracts::IDisputeGameFactory::{gameAtIndexReturn, IDisputeGameFactoryInstance};
+use kailua_contracts::IDisputeGameFactory::gameAtIndexReturn;
 use kailua_contracts::{FaultProofGame, IAnchorStateRegistry, IDisputeGameFactory};
+use kailua_host::fetch_rollup_config;
 use std::collections::HashMap;
+use std::env;
 use std::process::{exit, Command};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -48,7 +49,7 @@ pub struct ValidateArgs {
     pub l1_node_address: String,
     /// Address of the L1 Beacon API endpoint to use.
     #[clap(long)]
-    pub l1_beacon_address: Option<String>,
+    pub l1_beacon_address: String,
 
     /// Address of the L1 `AnchorStateRegistry` contract
     #[clap(long)]
@@ -60,14 +61,135 @@ pub struct ValidateArgs {
 }
 
 pub async fn validate(args: ValidateArgs) -> anyhow::Result<()> {
-    // initialize l2 connection
+    // We run two concurrent tasks, one for the chain, and one for the prover.
+    // Both tasks communicate using the duplex channel
+    let channel_pair = DuplexChannel::new_pair(4096);
+
+    let handle_proposals = spawn(handle_proposals(channel_pair.0, args.clone()));
+    let handle_proofs = spawn(handle_proofs(channel_pair.1, args));
+
+    let (proposals_task, proofs_task) = try_join!(handle_proposals, handle_proofs)?;
+    proposals_task.context("handle_proposals")?;
+    proofs_task.context("handle_proofs")?;
+
+    Ok(())
+}
+
+#[derive(Clone, Debug)]
+pub enum Message {
+    // The proposal and its parent
+    Proposal {
+        local_index: usize,
+        l1_head: FixedBytes<32>,
+        l2_head: u64,
+        l2_output_root: FixedBytes<32>,
+        l2_block_number: u64,
+        l2_claim: FixedBytes<32>,
+    },
+    Proof(usize, Vec<u8>),
+}
+
+pub async fn handle_proofs(
+    mut channel: DuplexChannel<Message>,
+    args: ValidateArgs,
+) -> anyhow::Result<()> {
+    // Fetch rollup configuration
+    let l2_chain_id = fetch_rollup_config(&args.op_node_address, &args.l2_node_address, None)
+        .await?
+        .l2_chain_id
+        .to_string();
+    // Read executable paths from env vars
+    let kailua_host = env::var("KAILUA_HOST").unwrap_or_else(|_| {
+        warn!("KAILUA_HOST set to default ./target/debug/kailua-host");
+        String::from("./target/debug/kailua-host")
+    });
+    let kailua_client = env::var("KAILUA_CLIENT").unwrap_or_else(|_| {
+        warn!("KAILUA_CLIENT set to default ./target/debug/kailua-client");
+        String::from("./target/debug/kailua-client")
+    });
+    let data_dir = env::var("KAILUA_DATA").unwrap_or_else(|_| {
+        warn!("KAILUA_DATA set to default .localtestdata");
+        String::from(".localtestdata")
+    });
+    // Run proof generator loop
+    loop {
+        // Dequeue messages
+        // todo: priority goes to fault proofs for games where one is the challenger
+        // todo: secondary priority is validity proofs for mis-challenged games
+        let Message::Proposal {
+            local_index: game_index,
+            l1_head,
+            l2_head,
+            l2_output_root,
+            l2_block_number,
+            l2_claim,
+        } = channel
+            .receiver
+            .recv()
+            .await
+            .expect("proof receiver channel closed")
+        else {
+            bail!("Unexpected message type.");
+        };
+        // Prepare kailua-host parameters
+        let l1_head = l1_head.to_string();
+        let l2_head = l2_head.to_string();
+        let l2_output_root = l2_output_root.to_string();
+        let l2_claim = l2_claim.to_string();
+        let l2_block_number = l2_block_number.to_string();
+        let proving_args = vec![
+            "--l1-head", // l1 head from on-chain proposal
+            &l1_head,
+            "--l2-head", // l2 starting block from on-chain proposal
+            &l2_head,
+            "--l2-output-root", // output root as of l2 starting block
+            &l2_output_root,
+            "--l2-claim", // proposed output root
+            &l2_claim,
+            "--l2-block-number", // proposed block number
+            &l2_block_number,
+            "--l2-chain-id", // rollup chain id
+            &l2_chain_id,
+            "--l1-node-address", // l1 el node
+            &args.l1_node_address,
+            "--l1-beacon-address", // l1 cl node
+            &args.l1_beacon_address,
+            "--l2-node-address", // l2 el node
+            &args.l2_node_address,
+            "--op-node-address", // l2 cl node
+            &args.op_node_address,
+            "--exec", // path to kailua-client
+            &kailua_client,
+            "--data-dir", // path to cache
+            &data_dir,
+        ];
+        debug!("{:?}", &proving_args);
+        // Prove via kailua-host (re dev mode/bonsai: env vars inherited!)
+        let proving_task = Command::new(&kailua_host)
+            .args(proving_args)
+            .output()
+            .context("Executing kailua-host.")?;
+        // todo: take the last bytes of proving_task.stdout as the output
+        let proof = proving_task.stdout;
+        debug!("{:?}", &proof);
+        channel
+            .sender
+            .send(Message::Proof(game_index, proof))
+            .await?;
+    }
+}
+
+pub async fn handle_proposals(
+    mut channel: DuplexChannel<Message>,
+    args: ValidateArgs,
+) -> anyhow::Result<()> {
+    // connect to l2 cl node
     let op_node_provider =
         ProviderBuilder::new().on_http(args.op_node_address.as_str().try_into()?);
-
     // initialize validator wallet
     info!("Initializing validator wallet.");
     let validator_signer = LocalSigner::from_str(&args.validator_key)?;
-    let _validator_address = validator_signer.address();
+    let validator_address = validator_signer.address();
     let validator_wallet = EthereumWallet::from(validator_signer);
     let validator_provider = Arc::new(
         ProviderBuilder::new()
@@ -116,71 +238,6 @@ pub async fn validate(args: ValidateArgs) -> anyhow::Result<()> {
         .await?
         .maxBlockCount_
         .to();
-    let channel_pair = DuplexChannel::new_pair(4096);
-
-    let handle_proposals = spawn(handle_proposals(
-        channel_pair.0,
-        dispute_game_factory,
-        op_node_provider,
-    ));
-
-    let (proposals_task,) = try_join!(handle_proposals)?;
-    proposals_task.context("handle_proposals")?;
-
-    Ok(())
-}
-
-#[derive(Clone, Debug)]
-pub enum Message {
-    Proposal(Proposal),
-    Proof(Proposal, Vec<u8>),
-}
-
-pub async fn handle_proofs(mut channel: DuplexChannel<Message>) -> anyhow::Result<()> {
-    loop {
-        // Dequeue messages
-        let message = channel.receiver.recv().await.expect("channel closed");
-        let Message::Proposal(proposal) = message else {
-            bail!("Unexpected message type.");
-        };
-        // todo: read kailua-host and kailua-client paths from env var
-        let kailua_host = "./target/debug/kailua-host";
-        let kailua_client = "./target/debug/kailua-client";
-        let proving_task = Command::new(kailua_host)
-            .args(vec![
-                // todo: add below data to proposal
-                "--l1-head",         // l1 head from on-chain proposal
-                "--l2-head",         // l2 starting block from on-chain proposal
-                "--l2-output-root",  // output root as of l2 starting block
-                "--l2-claim",        // proposed output root
-                "--l2-block-number", // proposed block number
-                // todo: derive parameters from args
-                "--l2-chain-id",
-                "--l1-node-address",
-                "--l1-beacon-address",
-                "--l2-node-address",
-                "--op-node-address",
-                // todo: read data-dir path from env var
-                "--exec",
-                kailua_client,
-                "--data-dir",
-                ".localtestdata",
-            ])
-            .output()
-            .context("Executing kailua-host.")?;
-        // todo: read the last bytes of stdout as the output
-        channel
-            .sender
-            .send(Message::Proof(proposal, proving_task.stdout))
-            .await?;
-    }
-}
-
-pub async fn handle_proposals<T: Transport + Clone, P: Provider<T, N>, N: Network>(
-    _channel: DuplexChannel<Message>,
-    dispute_game_factory: IDisputeGameFactoryInstance<T, P, N>,
-    op_node_provider: ReqwestProvider,
-) -> anyhow::Result<()> {
     let bond_value = dispute_game_factory
         .initBonds(FAULT_PROOF_GAME_TYPE)
         .call()
@@ -193,7 +250,7 @@ pub async fn handle_proposals<T: Transport + Clone, P: Provider<T, N>, N: Networ
     let mut search_start_index = 0;
     // Run the validator loop
     loop {
-        // fetch latest games
+        // validate latest games
         let game_count: u64 = dispute_game_factory
             .gameCount()
             .call()
@@ -223,7 +280,7 @@ pub async fn handle_proposals<T: Transport + Clone, P: Provider<T, N>, N: Networ
             let extra_data = game_contract.extraData().call().await?.extraData_;
             let local_index = proposal_tree.len();
             // Retrieve game/setup data
-            let (parent_local_index, challenged, proven) = match extra_data.len() {
+            let (parent_local_index, mut challenged, proven) = match extra_data.len() {
                 0x10 => {
                     // FaultProofGame instance
                     let parent_factory_index = game_contract
@@ -268,9 +325,24 @@ pub async fn handle_proposals<T: Transport + Clone, P: Provider<T, N>, N: Networ
                 // FaultProofSetup is self evident if op-node agrees
                 true
             };
+            // challenge any unchallenged bad proposals
+            if !correct && !challenged {
+                // Issue challenge against incorrect unchallenged proposals
+                info!("Challenging bad proposal.");
+                game_contract
+                    .challenge()
+                    .value(bond_value / U256::from(2))
+                    .send()
+                    .await
+                    .context("challenge (send)")?
+                    .get_receipt()
+                    .await
+                    .context("challenge (get_receipt)")?;
+                challenged = true;
+            }
             // update local tree view
             proposal_index.insert(factory_index, local_index);
-            info!("Read {correct} proposal at factory index {factory_index}");
+            info!("Validated {correct} proposal at factory index {factory_index}");
             let output_block_number = output_block_number.to();
             proposal_tree.push(Proposal {
                 factory_index,
@@ -283,26 +355,61 @@ pub async fn handle_proposals<T: Transport + Clone, P: Provider<T, N>, N: Networ
                 resolved,
                 correct,
             });
-            // todo: scan ancestry line and skip challenge if at least one invalid ancestor is challenged.
-            if !correct && !challenged {
-                // Issue challenge against incorrect unchallenged proposals
-                game_contract
-                    .challenge()
-                    .value(bond_value / U256::from(2))
-                    .send()
-                    .await
-                    .context("challenge (send)")?
-                    .get_receipt()
-                    .await
-                    .context("challenge (get_receipt)")?;
-                // todo: enqueue
+            // enqueue proving for any bad proposals challenged by this validator
+            if challenged && game_contract.challenger().call().await?._0 == validator_address {
+                // Read additional data for Kona invocation
+                info!("Requesting proof.");
+                let l1_head = game_contract.l1Head().call().await?.l1Head_;
+                let l2_head = game_contract
+                    .startingBlockNumber()
+                    .call()
+                    .await?
+                    .startingBlockNumber_
+                    .to();
+                let l2_output_root = game_contract
+                    .startingRootHash()
+                    .call()
+                    .await?
+                    .startingRootHash_;
+                // Message proving task
+                channel
+                    .sender
+                    .send(Message::Proposal {
+                        local_index,
+                        l1_head,
+                        l2_head,
+                        l2_output_root,
+                        l2_block_number: output_block_number,
+                        l2_claim: output_root,
+                    })
+                    .await?;
             }
         }
         search_start_index = game_count;
-        // todo: compute and publish proofs
-        // priority goes to fault proofs for games where one is the challenger
-        // secondary priority is validity proofs for mis-challenged games
-        // this should happen on a separate task/thread to enable on-chain challenges to resume
+        // publish computed proofs
+        while !channel.receiver.is_empty() {
+            let Message::Proof(local_index, proof) = channel
+                .receiver
+                .recv()
+                .await
+                .expect("proposals receiver channel closed")
+            else {
+                bail!("Unexpected message type.");
+            };
+            let proposal = &proposal_tree[local_index];
+            let game_contract =
+                FaultProofGame::new(proposal.game_address, dispute_game_factory.provider());
+            info!("Submitting proof against game in {}", proposal.game_address);
+            // only prove unproven games
+            if game_contract.proofStatus().call().await?._0 == 0 {
+                game_contract
+                    .prove(proof.into(), true)
+                    .send()
+                    .await?
+                    .get_receipt()
+                    .await?;
+            }
+        }
 
         // Wait for new data
         sleep(Duration::from_secs(1)).await;
