@@ -24,6 +24,7 @@ use propose::ProposeArgs;
 
 pub mod channel;
 pub mod deploy;
+pub mod fault;
 pub mod propose;
 pub mod validate;
 
@@ -37,6 +38,7 @@ pub enum Cli {
     Deploy(DeployArgs),
     Propose(ProposeArgs),
     Validate(ValidateArgs),
+    TestFault(ProposeArgs),
 }
 
 impl Cli {
@@ -45,6 +47,7 @@ impl Cli {
             Cli::Deploy(args) => args.v,
             Cli::Propose(args) => args.v,
             Cli::Validate(args) => args.v,
+            Cli::TestFault(args) => args.v,
         }
     }
 }
