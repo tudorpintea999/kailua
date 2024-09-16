@@ -29,18 +29,17 @@ Kailua enables rollup operators to add a new `FaultProofGame` contract, compatib
 4. `just devnet-upgrade`
    * Upgrades the devnet to use the `FaultProofGame` contract.
    * Assumes the default values of the local optimism devnet, but can take parameters.
-5. Invoke Kailua to play the fault proof game
-6. `just devnet-propose`
+5. `just devnet-propose`
    * Launches the kailua proposer.
-   * This constantly creates new `FaultProofGame` instances to advance the l2.
-7. `just devnet-validate`
+   * This constantly creates new `FaultProofGame` instances to finalize the l2 on the l1.
+6. `just devnet-validate`
    * Launches the kailua validator.
-   * This challenges any deployed `FaultProofGame` instance that contain invalid proposals
-8. `just devnet-fault`
-   * Deploys a single `FaultProofGame` instance to create a faulty proposal.
+   * This challenges `FaultProofGame` instances that contain invalid proposals
+7. `just devnet-fault`
+   * Deploys a single `FaultProofGame` instance with a faulty proposal.
    * Tests the validator's fault proving functionality.
    * Tests the proposer's canonical chain decision functionality.
-9. After you're done:
+8. After you're done:
    * `just devnet-down` to stop the running docker containers
    * `just devnet-clean` to cleanup the docker volumes
 
