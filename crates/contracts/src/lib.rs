@@ -28,8 +28,8 @@ sol!(
 
 sol!(
     #[sol(rpc)]
-    MockVerifier,
-    "foundry/out/MockVerifier.sol/MockVerifier.json"
+    RiscZeroMockVerifier,
+    "foundry/out/MockVerifier.sol/RiscZeroMockVerifier.json"
 );
 
 sol!(

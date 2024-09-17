@@ -2908,6 +2908,7 @@ dependencies = [
  "alloy",
  "anyhow",
  "assert_cmd",
+ "bincode",
  "bytemuck",
  "clap",
  "hex",
@@ -2917,6 +2918,7 @@ dependencies = [
  "kailua-contracts",
  "kailua-host",
  "kona-host",
+ "risc0-zkvm",
  "serde",
  "serde_json",
  "tokio",
@@ -2972,11 +2974,13 @@ dependencies = [
  "kona-primitives",
  "lazy_static",
  "lru",
+ "op-alloy-consensus",
  "revm 10.0.0",
  "risc0-zkvm",
  "risc0-zkvm-platform",
  "serde",
  "spin",
+ "tracing",
 ]
 
 [[package]]

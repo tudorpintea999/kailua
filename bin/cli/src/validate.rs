@@ -20,18 +20,22 @@ use alloy::primitives::{Address, FixedBytes, U256};
 use alloy::providers::{Provider, ProviderBuilder};
 use alloy::signers::local::LocalSigner;
 use anyhow::{bail, Context};
+use kailua_client::fpvm_proof_file_name;
 use kailua_contracts::IDisputeGameFactory::gameAtIndexReturn;
 use kailua_contracts::{FaultProofGame, IAnchorStateRegistry, IDisputeGameFactory};
 use kailua_host::fetch_rollup_config;
+use risc0_zkvm::Receipt;
 use std::collections::HashMap;
 use std::env;
-use std::process::{exit};
+use std::process::exit;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::fs::File;
+use tokio::io::AsyncReadExt;
+use tokio::process::Command;
 use tokio::time::sleep;
 use tokio::{spawn, try_join};
-use tokio::process::Command;
 use tracing::{debug, error, info, warn};
 
 #[derive(clap::Args, Debug, Clone)]
@@ -87,7 +91,7 @@ pub enum Message {
         l2_block_number: u64,
         l2_claim: FixedBytes<32>,
     },
-    Proof(usize, Vec<u8>),
+    Proof(usize, Receipt),
 }
 
 pub async fn handle_proofs(
@@ -134,6 +138,7 @@ pub async fn handle_proofs(
         };
         info!("Processing proof for local index {local_index}.");
         // Prepare kailua-host parameters
+        let proof_file_name = fpvm_proof_file_name(l1_head, l2_claim);
         let l1_head = l1_head.to_string();
         let l2_head = l2_head.to_string();
         let l2_output_root = l2_output_root.to_string();
@@ -180,14 +185,20 @@ pub async fn handle_proofs(
             .args(proving_args)
             .spawn()
             .context("Invoking kailua-host")?
-            .wait_with_output()
+            .wait()
             .await?;
-        // todo: take the last bytes of proving_task.stdout as the output
-        let proof = proving_task.stdout;
-        debug!("proof {:?}", &proof);
+        if !proving_task.success() {
+            error!("Proving task failure.");
+        }
+        // Read receipt file
+        let mut receipt_file = File::open(proof_file_name.clone()).await?;
+        let mut receipt_data = Vec::new();
+        receipt_file.read_to_end(&mut receipt_data).await?;
+        let receipt: Receipt = bincode::deserialize(&receipt_data)?;
+        // Send proof via the channel
         channel
             .sender
-            .send(Message::Proof(local_index, proof))
+            .send(Message::Proof(local_index, receipt))
             .await?;
         info!("Proof for local index {local_index} complete.");
     }
@@ -442,7 +453,7 @@ pub async fn handle_proposals(
         search_start_index = game_count;
         // publish computed proofs
         while !channel.receiver.is_empty() {
-            let Message::Proof(local_index, proof) = channel
+            let Message::Proof(local_index, receipt) = channel
                 .receiver
                 .recv()
                 .await
@@ -453,11 +464,17 @@ pub async fn handle_proposals(
             let proposal = &proposal_tree[local_index];
             let game_contract =
                 FaultProofGame::new(proposal.game_address, dispute_game_factory.provider());
-            info!("Utilizing proof against game in {}", proposal.game_address);
+            let is_fault_proof = *receipt.journal.bytes.last().unwrap() > 0;
+            let proof_label = if is_fault_proof { "fault" } else { "validity" };
+            info!(
+                "Utilizing {proof_label} proof in game at {}",
+                proposal.game_address
+            );
             // only prove unproven games
             if game_contract.proofStatus().call().await?._0 == 0 {
+                let snark = receipt.inner.groth16()?;
                 game_contract
-                    .prove(proof.into(), true)
+                    .prove(snark.seal.clone().into(), is_fault_proof)
                     .send()
                     .await?
                     .get_receipt()

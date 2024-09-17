@@ -19,7 +19,7 @@ use alloy::providers::ProviderBuilder;
 use alloy::signers::local::LocalSigner;
 use alloy::sol_types::SolValue;
 use anyhow::Context;
-use kailua_build::KAILUA_FPVM_CHAINED_ID;
+use kailua_build::KAILUA_FPVM_ID;
 use kailua_common::config_hash;
 use kailua_host::fetch_rollup_config;
 use std::process::exit;
@@ -249,10 +249,11 @@ pub async fn deploy(args: DeployArgs) -> anyhow::Result<()> {
     }
     // Deploy MockVerifier contract
     // {
-    info!("Deploying MockVerifier contract to L1 rpc.");
-    let mock_verifier_contract = kailua_contracts::MockVerifier::deploy(&deployer_provider)
-        .await
-        .context("MockVerifier contract deployment error")?;
+    info!("Deploying RiscZeroMockVerifier contract to L1 rpc.");
+    let mock_verifier_contract =
+        kailua_contracts::RiscZeroMockVerifier::deploy(&deployer_provider, [0u8; 4].into())
+            .await
+            .context("RiscZeroMockVerifier contract deployment error")?;
     info!("{:?}", &mock_verifier_contract);
     // }
     // Deploy FaultProofGame contract
@@ -261,7 +262,7 @@ pub async fn deploy(args: DeployArgs) -> anyhow::Result<()> {
     let fault_proof_game_contract = kailua_contracts::FaultProofGame::deploy(
         &deployer_provider,
         *mock_verifier_contract.address(),
-        bytemuck::cast::<[u32; 8], [u8; 32]>(KAILUA_FPVM_CHAINED_ID).into(),
+        bytemuck::cast::<[u32; 8], [u8; 32]>(KAILUA_FPVM_ID).into(),
         rollup_config_hash.into(),
         Uint::from(128),
         60,

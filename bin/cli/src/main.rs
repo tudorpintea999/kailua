@@ -25,10 +25,10 @@ async fn main() -> anyhow::Result<()> {
         Cli::Deploy(deploy_args) => deploy(deploy_args).await?,
         Cli::Propose(propose_args) => propose(propose_args).await?,
         Cli::Validate(validate_args) => validate(validate_args).await?,
-        Cli::TestFault(_propose_args) =>
+        Cli::TestFault(fault_args) =>
         {
             #[cfg(feature = "fault")]
-            kailua_cli::fault::fault(_propose_args).await?
+            kailua_cli::fault::fault(fault_args).await?
         }
     }
     Ok(())

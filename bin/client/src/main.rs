@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use kailua_client::fpvm_proof_file_name;
-use kailua_common::BasicBootInfo;
+use kailua_common::ProofJournal;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use tracing::info;
@@ -23,22 +23,22 @@ async fn main() -> anyhow::Result<()> {
     kona_host::init_tracing_subscriber(2)?;
     // preload all data natively
     info!("Running native client.");
-    kailua_client::native::run_native_client()
+    kailua_client::run_native_client()
         .await
         .expect("Failed to run native client.");
     // compute the receipt in the zkvm
     info!("Running zk client.");
-    let receipt = kailua_client::run_zkvm_client()
+    let receipt = kailua_client::prove_zkvm_client()
         .await
         .expect("Failed to run zk client.");
-    // Write the receipt to disk if an output is specified
-    let boot_info: BasicBootInfo = receipt
+    // Write the receipt to disk
+    let proof_journal: ProofJournal = receipt
         .journal
         .decode()
         .expect("Failed to decode receipt output");
     let mut output_file = File::create(fpvm_proof_file_name(
-        boot_info.l1_head,
-        boot_info.l2_output_root,
+        proof_journal.l1_head,
+        proof_journal.l2_claim,
     ))
     .await
     .expect("Failed to create receipt output file");

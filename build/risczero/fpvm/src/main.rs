@@ -13,78 +13,28 @@
 // limitations under the License.
 
 use kailua_common::blobs::RISCZeroBlobProvider;
-use kona_client::l1::{DerivationDriver, OracleBlobProvider, OracleL1ChainProvider};
-use kona_client::l2::OracleL2ChainProvider;
+use kona_client::l1::{OracleBlobProvider};
 use kona_client::BootInfo;
-use kona_executor::StatelessL2BlockExecutor;
-use kona_primitives::{Header, L2AttributesWithParent};
 use std::sync::Arc;
 use kailua_common::oracle::{CachingRISCZeroOracle, ORACLE_LRU_SIZE};
-use kailua_common::{config_hash, BasicBootInfo};
+use kailua_common::{ProofJournal};
 use risc0_zkvm::guest::env;
+use kailua_common::client::run_client;
 
-fn main() -> anyhow::Result<()> {
-    kona_common::block_on(async move {
-        ////////////////////////////////////////////////////////////////
-        //                          PROLOGUE                          //
-        ////////////////////////////////////////////////////////////////
-        env::log("PROLOGUE");
-
-        let oracle = Arc::new(CachingRISCZeroOracle::new(ORACLE_LRU_SIZE));
-        let boot = Arc::new(BootInfo::load(oracle.as_ref()).await?);
-        let rollup_config_hash = config_hash(&boot.rollup_config).expect("Failed to derive configuration hash");
-
-        let l1_provider = OracleL1ChainProvider::new(boot.clone(), oracle.clone());
-        let l2_provider = OracleL2ChainProvider::new(boot.clone(), oracle.clone());
-        let blob_provider = OracleBlobProvider::new(oracle.clone());
-        let beacon = RISCZeroBlobProvider::new(blob_provider);
-
-        ////////////////////////////////////////////////////////////////
-        //                   DERIVATION & EXECUTION                   //
-        ////////////////////////////////////////////////////////////////
-        env::log("DERIVATION");
-        let mut driver = DerivationDriver::new(
-            boot.as_ref(),
-            oracle.as_ref(),
-            beacon,
-            l1_provider,
-            l2_provider.clone(),
-        )
-        .await?;
-
-        env::log("PAYLOAD");
-        let Some(L2AttributesWithParent { attributes, .. }) = driver.produce_disputed_payload().await? else {
-            todo!()
-        };
-
-        env::log("EXECUTION");
-        let mut executor: StatelessL2BlockExecutor<_, _> =
-            StatelessL2BlockExecutor::builder(&boot.rollup_config)
-                .with_parent_header(driver.take_l2_safe_head_header())
-                .with_fetcher(l2_provider.clone())
-                .with_hinter(l2_provider)
-                .build()?;
-
-        env::log("HEADER");
-        let Header {
-            number: l2_claim_block,
-            ..
-        } = *executor.execute_payload(attributes)?;
-
-        env::log("OUTPUT");
-        let l2_claim = executor.compute_output_root()?;
-
-        ////////////////////////////////////////////////////////////////
-        //                          EPILOGUE                          //
-        ////////////////////////////////////////////////////////////////
-        env::commit(&BasicBootInfo {
-            l1_head: boot.l1_head,
-            l2_output_root: boot.l2_output_root,
-            l2_claim,
-            l2_claim_block,
-            config_hash: rollup_config_hash,
-        });
-
-        Ok::<_, anyhow::Error>(())
-    })
+fn main() {
+    let oracle = Arc::new(CachingRISCZeroOracle::new(ORACLE_LRU_SIZE));
+    let boot = kona_common::block_on(async { BootInfo::load(oracle.as_ref()).await.expect("Failed to load BootInfo") } );
+    let beacon = RISCZeroBlobProvider::new(OracleBlobProvider::new(oracle.clone()));
+    // Attempt to recompute the output hash at the target block number using the kona client
+    let real_output_hash = run_client(oracle, Arc::new(boot.clone()), beacon)
+        .expect("Failed to compute output hash.");
+    // True iff l1 data is sufficient to recompute the same output hash
+    let is_valid = real_output_hash
+        .map(|computed_output| computed_output == boot.l2_claim)
+        .unwrap_or_default();
+    // Write the proof journal
+    let proof_journal = ProofJournal::from(boot);
+    env::commit_slice(
+        &proof_journal.encode_packed(!is_valid)
+    );
 }

@@ -12,22 +12,41 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod native;
 pub mod oracle;
 
 use crate::oracle::{HINT_WRITER, ORACLE_READER};
 use alloy_primitives::B256;
+use anyhow::Context;
 use kailua_build::{KAILUA_FPVM_ELF, KAILUA_FPVM_ID};
 use kailua_common::oracle::{FPVM_GET_PREIMAGE, FPVM_WRITE_HINT, ORACLE_LRU_SIZE};
-use kona_client::CachingOracle;
+use kona_client::l1::OracleBlobProvider;
+use kona_client::{BootInfo, CachingOracle};
 use kona_preimage::{HintWriterClient, PreimageOracleClient};
-use risc0_zkvm::{default_prover, ExecutorEnv, Receipt};
+use risc0_zkvm::{default_prover, ExecutorEnv, ProverOpts, Receipt};
 use std::sync::Arc;
 use tokio::join;
 use tokio::runtime::Handle;
 use tokio::task::spawn_blocking;
+use tracing::info;
 
-pub async fn run_zkvm_client() -> anyhow::Result<Receipt> {
+pub async fn run_native_client() -> anyhow::Result<Option<B256>> {
+    info!("Preamble");
+    let oracle = Arc::new(CachingOracle::new(
+        ORACLE_LRU_SIZE,
+        ORACLE_READER,
+        HINT_WRITER,
+    ));
+
+    let boot = Arc::new(
+        BootInfo::load(oracle.as_ref())
+            .await
+            .context("BootInfo::load")?,
+    );
+    let beacon = OracleBlobProvider::new(oracle.clone());
+    kailua_common::client::run_client(oracle, boot, beacon)
+}
+
+pub async fn prove_zkvm_client() -> anyhow::Result<Receipt> {
     let client_task = spawn_blocking(|| {
         let oracle = Arc::new(CachingOracle::new(
             ORACLE_LRU_SIZE,
@@ -50,7 +69,7 @@ pub async fn run_zkvm_client() -> anyhow::Result<Receipt> {
             })
             .build()?;
         let prover = default_prover();
-        let prove_info = prover.prove(env, KAILUA_FPVM_ELF)?;
+        let prove_info = prover.prove_with_opts(env, KAILUA_FPVM_ELF, &ProverOpts::groth16())?;
         println!(
             "STARK proof of {} total cycles ({} user cycles) computed.",
             prove_info.stats.total_cycles, prove_info.stats.user_cycles
@@ -61,12 +80,16 @@ pub async fn run_zkvm_client() -> anyhow::Result<Receipt> {
     join!(client_task).0?
 }
 
-pub fn fpvm_proof_file_name(l1_head: B256, l2_output_root: B256) -> String {
+pub fn fpvm_proof_file_name(l1_head: B256, l2_claim: B256) -> String {
+    let version = risc0_zkvm::get_version().unwrap();
     let suffix = if risc0_zkvm::is_dev_mode() {
         "fake"
     } else {
         "zkp"
     };
     let prefix = B256::from(bytemuck::cast::<_, [u8; 32]>(KAILUA_FPVM_ID));
-    format!("{prefix}-{l1_head}_{l2_output_root}.{suffix}",)
+    format!(
+        "{}-{prefix}-{l1_head}_{l2_claim}.{suffix}",
+        version.to_string()
+    )
 }

@@ -24,7 +24,7 @@ import "../src/FaultProofSetup.sol";
 
 contract FaultProofGameTest is Test {
     uint256 mainnetFork;
-    MockVerifier verifier;
+    RiscZeroMockVerifier verifier;
     FaultProofGame faultProofGame;
     GameType faultProofGameType = GameType.wrap(1337);
     GameType faultDisputeGameType = GameType.wrap(1); // Use the anchor of the permissioned fault dispute game
@@ -37,7 +37,7 @@ contract FaultProofGameTest is Test {
 
     function setUp() external {
         mainnetFork = vm.createSelectFork(vm.envString("L1_NODE_ADDRESS"), 20634349);
-        verifier = new MockVerifier();
+        verifier = new RiscZeroMockVerifier(bytes4(0));
         // deploy setup contract
         FaultProofSetup setup = new FaultProofSetup(faultProofGameType, faultDisputeGameType, registry);
         // deploy game contract

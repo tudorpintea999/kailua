@@ -14,21 +14,13 @@
 
 use alloy_provider::{Provider, ProviderBuilder};
 use clap::Parser;
-use kailua_build::{KAILUA_FPVM_CHAINED_ELF, KAILUA_FPVM_ID};
-use kailua_common::BasicBootInfo;
 use kona_primitives::RollupConfig;
-use risc0_zkvm::{default_prover, AssumptionReceipt, ExecutorEnv, ProverOpts, Receipt};
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::path::PathBuf;
+use tempfile::TempDir;
 use tokio::fs;
-
-// #[derive(clap::Parser, Debug, Clone)]
-// #[command(name = "kailua")]
-// #[command(bin_name = "kailua")]
-// pub enum KailuaCli {
-//     Prove(KailuaHostCli)
-// }
+use tracing::info;
 
 /// The host binary CLI application arguments.
 #[derive(Parser, Serialize, Clone, Debug)]
@@ -41,32 +33,35 @@ pub struct KailuaHostCli {
     pub op_node_address: Option<String>,
 }
 
-pub fn aggregate_client_proofs(
-    claim: BasicBootInfo,
-    chain: Vec<BasicBootInfo>,
-    receipts: Vec<Receipt>,
-) -> anyhow::Result<Receipt> {
-    let env = {
-        let mut builder = ExecutorEnv::builder();
-        builder
-            .write(&KAILUA_FPVM_ID)?
-            .write(&claim)?
-            .write(&chain)?;
-        for receipt in receipts {
-            builder.add_assumption(AssumptionReceipt::from(receipt));
-        }
-        builder.build()?
-    };
-    let prover = default_prover();
-    let prove_info =
-        prover.prove_with_opts(env, KAILUA_FPVM_CHAINED_ELF, &ProverOpts::succinct())?;
-
-    println!(
-        "STARK proof of {} total cycles ({} user cycles) computed.",
-        prove_info.stats.total_cycles, prove_info.stats.user_cycles
-    );
-
-    Ok(prove_info.receipt)
+pub async fn generate_rollup_config(
+    cfg: &mut KailuaHostCli,
+    tmp_dir: &TempDir,
+) -> anyhow::Result<()> {
+    // generate a RollupConfig for the target network
+    if RollupConfig::from_l2_chain_id(cfg.kona.l2_chain_id).is_none()
+        && cfg.kona.read_rollup_config().is_err()
+    {
+        info!("Fetching rollup config from nodes.");
+        let tmp_cfg_file = tmp_dir.path().join("rollup-config.json");
+        fetch_rollup_config(
+            cfg.op_node_address
+                .clone()
+                .expect("Missing op-node-address")
+                .as_str(),
+            cfg.kona
+                .l2_node_address
+                .clone()
+                .expect("Missing l2-node-address")
+                .as_str(),
+            Some(&tmp_cfg_file),
+        )
+        .await?;
+        cfg.kona.rollup_config_path = Some(tmp_cfg_file);
+        cfg.kona
+            .read_rollup_config()
+            .expect("Failed to read custom rollup config");
+    }
+    Ok(())
 }
 
 pub async fn fetch_rollup_config(

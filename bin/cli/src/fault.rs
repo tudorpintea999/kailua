@@ -26,18 +26,28 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tracing::info;
 
-pub async fn fault(args: ProposeArgs) -> anyhow::Result<()> {
+#[derive(clap::Args, Debug, Clone)]
+pub struct FaultArgs {
+    #[clap(flatten)]
+    pub propose_args: ProposeArgs,
+
+    /// Number of blocks in the faulty proposal
+    #[clap(long)]
+    pub fault_block_count: u64,
+}
+
+pub async fn fault(args: FaultArgs) -> anyhow::Result<()> {
     // init l1 stuff
-    let tester_signer = LocalSigner::from_str(&args.proposer_key)?;
+    let tester_signer = LocalSigner::from_str(&args.propose_args.proposer_key)?;
     let tester_wallet = EthereumWallet::from(tester_signer);
     let tester_provider = Arc::new(
         ProviderBuilder::new()
             .with_recommended_fillers()
             .wallet(tester_wallet)
-            .on_http(args.l1_node_address.as_str().try_into()?),
+            .on_http(args.propose_args.l1_node_address.as_str().try_into()?),
     );
     let anchor_state_registry = IAnchorStateRegistry::new(
-        Address::from_str(&args.registry_contract)?,
+        Address::from_str(&args.propose_args.registry_contract)?,
         tester_provider.clone(),
     );
     let dispute_game_factory = IDisputeGameFactory::new(
@@ -83,7 +93,7 @@ pub async fn fault(args: ProposeArgs) -> anyhow::Result<()> {
         .await?
         .gameCount_
         .to_be_bytes();
-    let proposed_block_number = anchor_block_number + 1;
+    let proposed_block_number = anchor_block_number + args.fault_block_count;
     let extra_data = [
         proposed_block_number.abi_encode_packed(),
         first_game_index.abi_encode_packed(),

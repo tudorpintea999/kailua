@@ -22,10 +22,12 @@ use serde::{Deserialize, Serialize};
 
 #[cfg(target_os = "zkvm")]
 pub mod blobs;
+pub mod client;
+pub mod driver;
 pub mod oracle;
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
-pub struct BasicBootInfo {
+pub struct ProofJournal {
     /// The L1 head hash containing the safe L2 chain data that may reproduce the L2 head hash.
     pub l1_head: B256,
     /// The latest finalized L2 output root.
@@ -38,7 +40,7 @@ pub struct BasicBootInfo {
     pub config_hash: [u8; 32],
 }
 
-impl From<BootInfo> for BasicBootInfo {
+impl From<BootInfo> for ProofJournal {
     fn from(value: BootInfo) -> Self {
         Self {
             l1_head: value.l1_head,
@@ -50,18 +52,15 @@ impl From<BootInfo> for BasicBootInfo {
     }
 }
 
-impl BasicBootInfo {
-    pub fn encode_packed(&self, validity: bool, fpvm_image_id: [u8; 32]) -> Vec<u8> {
-        // update config hash with FPVM_IMAGE_ID in journal
-        let config_bytes = [self.config_hash.as_slice(), fpvm_image_id.as_slice()].concat();
-        let config_hash = SHA2::hash_bytes(config_bytes.as_slice());
+impl ProofJournal {
+    pub fn encode_packed(&self, is_fault_proof: bool) -> Vec<u8> {
         [
             self.l1_head.as_slice(),
             self.l2_output_root.as_slice(),
             self.l2_claim.as_slice(),
             self.l2_claim_block.to_be_bytes().as_slice(),
-            config_hash.as_bytes(),
-            &[validity as u8],
+            self.config_hash.as_slice(),
+            &[is_fault_proof as u8],
         ]
         .concat()
     }

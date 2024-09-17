@@ -29,5 +29,6 @@ fn main() {
 
     // Tell Cargo that if a source file changes, to rerun this build script.
     project.rerun_if_sources_changed();
-    println!("cargo:rerun-if-changed=src")
+    println!("cargo:rerun-if-changed=src");
+    println!("cargo:rerun-if-changed=test");
 }

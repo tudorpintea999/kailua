@@ -1660,11 +1660,13 @@ dependencies = [
  "kona-primitives",
  "lazy_static",
  "lru",
+ "op-alloy-consensus",
  "revm 10.0.0",
  "risc0-zkvm",
  "risc0-zkvm-platform",
  "serde",
  "spin",
+ "tracing",
 ]
 
 [[package]]

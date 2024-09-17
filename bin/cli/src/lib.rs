@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::fault::FaultArgs;
 use crate::validate::ValidateArgs;
 use alloy::contract::SolCallBuilder;
 use alloy::network::{Network, TransactionBuilder};
@@ -41,7 +42,7 @@ pub enum Cli {
     Deploy(DeployArgs),
     Propose(ProposeArgs),
     Validate(ValidateArgs),
-    TestFault(ProposeArgs),
+    TestFault(FaultArgs),
 }
 
 impl Cli {
@@ -50,7 +51,7 @@ impl Cli {
             Cli::Deploy(args) => args.v,
             Cli::Propose(args) => args.v,
             Cli::Validate(args) => args.v,
-            Cli::TestFault(args) => args.v,
+            Cli::TestFault(args) => args.propose_args.v,
         }
     }
 }
