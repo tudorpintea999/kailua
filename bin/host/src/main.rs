@@ -26,7 +26,8 @@ async fn main() -> anyhow::Result<()> {
     init_tracing_subscriber(cfg.kona.v)?;
 
     // compute receipt if uncached
-    let file_name = fpvm_proof_file_name(cfg.kona.l1_head, cfg.kona.l2_claim);
+    let file_name =
+        fpvm_proof_file_name(cfg.kona.l1_head, cfg.kona.l2_claim, cfg.kona.l2_output_root);
     if File::open(file_name.clone()).await.is_err() {
         info!("Computing uncached receipt.");
         let tmp_dir = tempdir()?;

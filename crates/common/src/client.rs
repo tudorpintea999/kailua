@@ -13,15 +13,18 @@
 // limitations under the License.
 
 use crate::driver::DerivationDriver;
-use alloy_eips::eip2718::Decodable2718;
-use alloy_primitives::{Sealable, B256};
+// use alloy_eips::eip2718::Decodable2718;
+// use alloy_primitives::{Sealable, B256};
+use alloy_primitives::B256;
 use kona_client::l1::OracleL1ChainProvider;
 use kona_client::l2::OracleL2ChainProvider;
+// use kona_client::{BootInfo, HintType};
 use kona_client::BootInfo;
 use kona_derive::traits::BlobProvider;
 use kona_executor::StatelessL2BlockExecutor;
 use kona_preimage::CommsClient;
-use kona_primitives::{L2ExecutionPayloadEnvelope, OpBlock};
+// use kona_primitives::{L2ExecutionPayloadEnvelope, OpBlock};
+use anyhow::bail;
 use std::fmt::Debug;
 use std::sync::Arc;
 
@@ -40,7 +43,7 @@ pub fn run_client<
         log("PROLOGUE");
 
         let l1_provider = OracleL1ChainProvider::new(boot.clone(), oracle.clone());
-        let mut l2_provider = OracleL2ChainProvider::new(boot.clone(), oracle.clone());
+        let l2_provider = OracleL2ChainProvider::new(boot.clone(), oracle.clone());
 
         ////////////////////////////////////////////////////////////////
         //                   DERIVATION & EXECUTION                   //
@@ -49,71 +52,92 @@ pub fn run_client<
         let mut driver = DerivationDriver::new(
             boot.as_ref(),
             oracle.as_ref(),
-            beacon,
+            beacon.clone(),
             l1_provider,
             l2_provider.clone(),
         )
         .await?;
 
-        loop {
-            log(&format!(
-                "PAYLOAD: safe_head({}|{})",
-                driver.l2_safe_head_header.number, boot.l2_output_root
-            ));
-            let Some(payload) = driver.produce_disputed_payload().await? else {
-                // Insufficient l1 data as l1-head to derive l2 blocks of claim height
-                break Ok(None);
-            };
+        log(&format!(
+            "PAYLOAD: safe_head({}|{})",
+            driver.l2_safe_head_header.number, boot.l2_output_root
+        ));
+        let Some(payload) = driver.produce_disputed_payload().await? else {
+            // Insufficient l1 data as l1-head to derive l2 blocks of claim height
+            return Ok(None);
+        };
 
-            log("EXECUTION");
-            let mut executor: StatelessL2BlockExecutor<_, _> =
-                StatelessL2BlockExecutor::builder(&boot.rollup_config)
-                    .with_parent_header(driver.l2_safe_head_header)
-                    .with_fetcher(l2_provider.clone())
-                    .with_hinter(l2_provider.clone())
-                    .build()?;
+        log("EXECUTION");
+        let mut executor: StatelessL2BlockExecutor<_, _> =
+            StatelessL2BlockExecutor::builder(&boot.rollup_config)
+                .with_parent_header(driver.l2_safe_head_header)
+                .with_fetcher(l2_provider.clone())
+                .with_hinter(l2_provider.clone())
+                .build()?;
 
-            let header = executor
-                .execute_payload(payload.attributes.clone())?
-                .clone();
-            let output_root = executor.compute_output_root()?;
-            if header.number == boot.l2_claim_block {
-                log("OUTPUT");
-                // return the output at the claim block number
-                break Ok(Some(output_root));
-            } else {
-                log("STEP");
-                // Derive block info
-                let body = payload
-                    .attributes
-                    .transactions
-                    .iter()
-                    .map(|raw_tx| {
-                        op_alloy_consensus::OpTxEnvelope::decode_2718(&mut raw_tx.as_ref()).unwrap()
-                    })
-                    .collect();
-                let l2_payload_envelope = L2ExecutionPayloadEnvelope::from(OpBlock {
-                    header: header.clone(),
-                    body,
-                    withdrawals: boot
-                        .rollup_config
-                        .is_canyon_active(header.timestamp)
-                        .then(Vec::new),
-                    ..Default::default()
-                });
-                // Update driver safe head
-                driver.l2_safe_head = l2_payload_envelope.to_l2_block_ref(&boot.rollup_config)?;
-                driver.l2_safe_head_header = header.seal_slow();
-                // Update l2_output_root in l2 provider boot info
-                let new_boot_info = Arc::new(BootInfo {
-                    l2_output_root: output_root,
-                    ..boot.as_ref().clone()
-                });
-                l2_provider.boot_info = new_boot_info.clone();
-                driver.pipeline.l2_chain_provider.boot_info = new_boot_info.clone();
-                driver.pipeline.attributes.builder.config_fetcher.boot_info = new_boot_info.clone();
-            }
+        let header = executor
+            .execute_payload(payload.attributes.clone())?
+            .clone();
+
+        if header.number != boot.l2_claim_block {
+            bail!("Only single-block proofs are supported now.");
         }
+
+        log("OUTPUT");
+        let output_root = executor.compute_output_root()?;
+
+        return Ok(Some(output_root));
+
+        // vestigial code below for when kona server can handle multi-block proofs
+
+        // loop {
+        //
+        //     if header.number == boot.l2_claim_block {
+        //         log("OUTPUT");
+        //         // return the output at the claim block number
+        //         break Ok(Some(output_root));
+        //     } else {
+        //         log("STEP");
+        //         // Derive block info
+        //         let body = payload
+        //             .attributes
+        //             .transactions
+        //             .iter()
+        //             .map(|raw_tx| {
+        //                 op_alloy_consensus::OpTxEnvelope::decode_2718(&mut raw_tx.as_ref()).unwrap()
+        //             })
+        //             .collect();
+        //         let l2_payload_envelope = L2ExecutionPayloadEnvelope::from(OpBlock {
+        //             header: header.clone(),
+        //             body,
+        //             withdrawals: boot
+        //                 .rollup_config
+        //                 .is_canyon_active(header.timestamp)
+        //                 .then(Vec::new),
+        //             ..Default::default()
+        //         });
+        //         // Update safe head
+        //         driver.l2_safe_head = l2_payload_envelope.to_l2_block_ref(&boot.rollup_config)?;
+        //         driver.l2_safe_head_header = header.seal_slow();
+        //         let l2_head = driver.l2_safe_head_header.seal();
+        //         oracle
+        //             .write(&HintType::SafeL2Head.encode_with(&[l2_head.as_ref()]))
+        //             .await?;
+        //
+        //         // Update l2_output_root in l2 provider boot info
+        //         let new_boot_info = Arc::new(BootInfo {
+        //             l2_output_root: output_root,
+        //             ..boot.as_ref().clone()
+        //         });
+        //         l2_provider.boot_info = new_boot_info.clone();
+        //         driver.pipeline.l2_chain_provider.boot_info = new_boot_info.clone();
+        //         driver.pipeline.attributes.builder.config_fetcher.boot_info = new_boot_info.clone();
+        //         // boot = Arc::new(BootInfo {
+        //         //     l2_output_root: output_root,
+        //         //     ..boot.as_ref().clone()
+        //         // });
+        //     }
+        // }
     })
 }
 

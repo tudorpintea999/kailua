@@ -138,7 +138,7 @@ pub async fn handle_proofs(
         };
         info!("Processing proof for local index {local_index}.");
         // Prepare kailua-host parameters
-        let proof_file_name = fpvm_proof_file_name(l1_head, l2_claim);
+        let proof_file_name = fpvm_proof_file_name(l1_head, l2_claim, l2_output_root);
         let l1_head = l1_head.to_string();
         let l2_head = l2_head.to_string();
         let l2_output_root = l2_output_root.to_string();

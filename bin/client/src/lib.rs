@@ -83,7 +83,7 @@ pub async fn prove_zkvm_client() -> anyhow::Result<Receipt> {
     join!(client_task).0?
 }
 
-pub fn fpvm_proof_file_name(l1_head: B256, l2_claim: B256) -> String {
+pub fn fpvm_proof_file_name(l1_head: B256, l2_claim: B256, l2_output_root: B256) -> String {
     let version = risc0_zkvm::get_version().unwrap();
     let suffix = if risc0_zkvm::is_dev_mode() {
         "fake"
@@ -92,7 +92,7 @@ pub fn fpvm_proof_file_name(l1_head: B256, l2_claim: B256) -> String {
     };
     let prefix = B256::from(bytemuck::cast::<_, [u8; 32]>(KAILUA_FPVM_ID));
     format!(
-        "{}-{prefix}-{l1_head}_{l2_claim}.{suffix}",
+        "{}-{prefix}-{l1_head}_{l2_output_root}_{l2_claim}.{suffix}",
         version.to_string()
     )
 }
