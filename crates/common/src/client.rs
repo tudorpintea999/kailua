@@ -40,7 +40,7 @@ pub fn run_client<
         log("PROLOGUE");
 
         let l1_provider = OracleL1ChainProvider::new(boot.clone(), oracle.clone());
-        let l2_provider = OracleL2ChainProvider::new(boot.clone(), oracle.clone());
+        let mut l2_provider = OracleL2ChainProvider::new(boot.clone(), oracle.clone());
 
         ////////////////////////////////////////////////////////////////
         //                   DERIVATION & EXECUTION                   //
@@ -56,7 +56,10 @@ pub fn run_client<
         .await?;
 
         loop {
-            log("PAYLOAD");
+            log(&format!(
+                "PAYLOAD: safe_head({}|{})",
+                driver.l2_safe_head_header.number, boot.l2_output_root
+            ));
             let Some(payload) = driver.produce_disputed_payload().await? else {
                 // Insufficient l1 data as l1-head to derive l2 blocks of claim height
                 break Ok(None);
@@ -70,12 +73,14 @@ pub fn run_client<
                     .with_hinter(l2_provider.clone())
                     .build()?;
 
-            let header = executor.execute_payload(payload.attributes.clone())?;
-
+            let header = executor
+                .execute_payload(payload.attributes.clone())?
+                .clone();
+            let output_root = executor.compute_output_root()?;
             if header.number == boot.l2_claim_block {
                 log("OUTPUT");
                 // return the output at the claim block number
-                break Ok(Some(executor.compute_output_root()?));
+                break Ok(Some(output_root));
             } else {
                 log("STEP");
                 // Derive block info
@@ -96,9 +101,17 @@ pub fn run_client<
                         .then(Vec::new),
                     ..Default::default()
                 });
-                // Update driver state
+                // Update driver safe head
                 driver.l2_safe_head = l2_payload_envelope.to_l2_block_ref(&boot.rollup_config)?;
-                driver.l2_safe_head_header = header.clone().seal_slow();
+                driver.l2_safe_head_header = header.seal_slow();
+                // Update l2_output_root in l2 provider boot info
+                let new_boot_info = Arc::new(BootInfo {
+                    l2_output_root: output_root,
+                    ..boot.as_ref().clone()
+                });
+                l2_provider.boot_info = new_boot_info.clone();
+                driver.pipeline.l2_chain_provider.boot_info = new_boot_info.clone();
+                driver.pipeline.attributes.builder.config_fetcher.boot_info = new_boot_info.clone();
             }
         }
     })

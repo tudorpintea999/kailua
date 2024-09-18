@@ -179,14 +179,15 @@ pub async fn handle_proofs(
         if args.v > 0 {
             proving_args.push(&verbosity);
         }
-        debug!("proving_args {:?}", &proving_args);
         // Prove via kailua-host (re dev mode/bonsai: env vars inherited!)
         let mut kailua_host_command = Command::new(&kailua_host);
         // get fake receipts when building under devnet
         #[cfg(feature = "devnet")]
         kailua_host_command.env("RISC0_DEV_MODE", "1");
+        // pass arguments to point at target block
+        kailua_host_command.args(proving_args);
+        debug!("kailua_host_command {:?}", &kailua_host_command);
         let proving_task = kailua_host_command
-            .args(proving_args)
             .spawn()
             .context("Invoking kailua-host")?
             .wait()

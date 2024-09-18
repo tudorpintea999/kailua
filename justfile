@@ -28,7 +28,7 @@ devnet-down:
 devnet-clean:
   make -C optimism devnet-clean
 
-devnet-upgrade l1_rpc="http://127.0.0.1:8545" l1_beacon_rpc="http://127.0.0.1:5052" l2_rpc="http://127.0.0.1:9545" rollup_node_rpc="http://127.0.0.1:7545" registry="0xd801426328C609fCDe6E3B7a5623C27e8F607832" portal="0x6509f2a854BA7441039fCE3b959d5bAdd2fFCFCD" deployer="0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba" owner="0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6" guardian="0x2a871d0798f97d79848a013d4936a73bf4cc922c825d33c1cf7073dff6d409c6" verbosity="-vv":
+devnet-upgrade verbosity="-vv" l1_rpc="http://127.0.0.1:8545" l1_beacon_rpc="http://127.0.0.1:5052" l2_rpc="http://127.0.0.1:9545" rollup_node_rpc="http://127.0.0.1:7545" registry="0xd801426328C609fCDe6E3B7a5623C27e8F607832" portal="0x6509f2a854BA7441039fCE3b959d5bAdd2fFCFCD" deployer="0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba" owner="0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6" guardian="0x2a871d0798f97d79848a013d4936a73bf4cc922c825d33c1cf7073dff6d409c6":
   ./target/debug/kailua-cli deploy \
       --registry-contract {{registry}} \
       --portal-contract {{portal}} \
@@ -41,7 +41,7 @@ devnet-upgrade l1_rpc="http://127.0.0.1:8545" l1_beacon_rpc="http://127.0.0.1:50
       --guardian-key {{guardian}} \
       {{verbosity}}
 
-devnet-propose l1_rpc="http://127.0.0.1:8545" rollup_node_rpc="http://127.0.0.1:7545" registry="0xd801426328C609fCDe6E3B7a5623C27e8F607832" deployer="0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba" verbosity="-vv":
+devnet-propose verbosity="-vv" l1_rpc="http://127.0.0.1:8545" rollup_node_rpc="http://127.0.0.1:7545" registry="0xd801426328C609fCDe6E3B7a5623C27e8F607832" deployer="0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba":
   ./target/debug/kailua-cli propose \
       --registry-contract {{registry}} \
       --l1-node-address {{l1_rpc}} \
@@ -49,7 +49,7 @@ devnet-propose l1_rpc="http://127.0.0.1:8545" rollup_node_rpc="http://127.0.0.1:
       --proposer-key {{deployer}} \
       {{verbosity}}
 
-devnet-fault size="1" l1_rpc="http://127.0.0.1:8545" rollup_node_rpc="http://127.0.0.1:7545" registry="0xd801426328C609fCDe6E3B7a5623C27e8F607832" deployer="0x47e179ec197488593b187f80a00eb0da91f1b9d0b13f8733639f19c30a34926a" verbosity="-vv":
+devnet-fault verbosity="-vv" size="1" l1_rpc="http://127.0.0.1:8545" rollup_node_rpc="http://127.0.0.1:7545" registry="0xd801426328C609fCDe6E3B7a5623C27e8F607832" deployer="0x47e179ec197488593b187f80a00eb0da91f1b9d0b13f8733639f19c30a34926a":
   ./target/debug/kailua-cli test-fault \
       --registry-contract {{registry}} \
       --l1-node-address {{l1_rpc}} \
@@ -58,7 +58,7 @@ devnet-fault size="1" l1_rpc="http://127.0.0.1:8545" rollup_node_rpc="http://127
       --fault-block-count {{size}} \
       {{verbosity}}
 
-devnet-validate l1_rpc="http://127.0.0.1:8545" l1_beacon_rpc="http://127.0.0.1:5052" l2_rpc="http://127.0.0.1:9545" rollup_node_rpc="http://127.0.0.1:7545" registry="0xd801426328C609fCDe6E3B7a5623C27e8F607832" validator="0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba" verbosity="-vv":
+devnet-validate verbosity="-vv" l1_rpc="http://127.0.0.1:8545" l1_beacon_rpc="http://127.0.0.1:5052" l2_rpc="http://127.0.0.1:9545" rollup_node_rpc="http://127.0.0.1:7545" registry="0xd801426328C609fCDe6E3B7a5623C27e8F607832" validator="0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba":
   ./target/debug/kailua-cli validate \
       --registry-contract {{registry}} \
       --l1-node-address {{l1_rpc}} \
