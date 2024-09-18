@@ -32,4 +32,6 @@ fn main() {
     let build_opts = Default::default();
 
     risc0_build::embed_methods_with_options(build_opts);
+    println!("cargo:rerun-if-changed=src");
+    println!("cargo:rerun-if-changed=fpvm/src");
 }

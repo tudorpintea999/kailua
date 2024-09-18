@@ -32,10 +32,12 @@ async fn main() -> anyhow::Result<()> {
         .await
         .expect("Failed to run zk client.");
     // Write the receipt to disk
-    let proof_journal: ProofJournal = receipt
-        .journal
-        .decode()
+    let proof_journal = ProofJournal::decode_packed(receipt.journal.as_ref())
         .expect("Failed to decode receipt output");
+    // let proof_journal: ProofJournal = receipt
+    //     .journal
+    //     .decode()
+    //     .expect("Failed to decode receipt output");
     let mut output_file = File::create(fpvm_proof_file_name(
         proof_journal.l1_head,
         proof_journal.l2_claim,

@@ -21,6 +21,7 @@ use alloy::providers::{Provider, ReqwestProvider};
 use alloy::transports::Transport;
 use anyhow::Context;
 use deploy::DeployArgs;
+use kailua_contracts::FaultProofGame::FaultProofGameInstance;
 use kailua_contracts::Safe::SafeInstance;
 use propose::ProposeArgs;
 use std::str::FromStr;
@@ -111,4 +112,50 @@ pub async fn output_at_block(
     Ok(FixedBytes::<32>::from_str(
         output_at_block["outputRoot"].as_str().unwrap(),
     )?)
+}
+
+pub async fn derive_expected_journal<T: Transport + Clone, P: Provider<T, N>, N: Network>(
+    game_contract: &FaultProofGameInstance<T, P, N>,
+    is_fault_proof: bool,
+) -> anyhow::Result<Vec<u8>> {
+    // bytes32 journalDigest = sha256(
+    //     abi.encodePacked(
+    //         // The L1 head hash containing the safe L2 chain data that may reproduce the L2 head hash.
+    //         l1Head().raw(),
+    //         // The latest finalized L2 output root.
+    //         parentGame().rootClaim().raw(),
+    //         // The L2 output root claim.
+    //         rootClaim().raw(),
+    //         // The L2 claim block number.
+    //         uint64(l2BlockNumber()),
+    //         // The configuration hash for this game
+    //         GAME_CONFIG_HASH,
+    //         // True iff the proof demonstrates fraud, false iff it demonstrates integrity
+    //         isFaultProof
+    //     )
+    // );
+    let l1_head = game_contract.l1Head().call().await?.l1Head_.0;
+    let parent_contract_address = game_contract.parentGame().call().await?.parentGame_;
+    let parent_contract =
+        FaultProofGameInstance::new(parent_contract_address, game_contract.provider());
+    let l2_output_root = parent_contract.rootClaim().call().await?.rootClaim_.0;
+    let l2_claim = game_contract.rootClaim().call().await?.rootClaim_.0;
+    let l2_claim_block = game_contract
+        .l2BlockNumber()
+        .call()
+        .await?
+        .l2BlockNumber_
+        .to::<u64>()
+        .to_be_bytes();
+    let config_hash = game_contract.configHash().call().await?.configHash_.0;
+    let is_fault_proof = [is_fault_proof as u8];
+    Ok([
+        l1_head.as_slice(),
+        l2_output_root.as_slice(),
+        l2_claim.as_slice(),
+        l2_claim_block.as_slice(),
+        config_hash.as_slice(),
+        is_fault_proof.as_slice(),
+    ]
+    .concat())
 }

@@ -64,6 +64,16 @@ impl ProofJournal {
         ]
         .concat()
     }
+
+    pub fn decode_packed(encoded: &[u8]) -> Result<Self, anyhow::Error> {
+        Ok(ProofJournal {
+            l1_head: encoded[..32].try_into()?,
+            l2_output_root: encoded[32..64].try_into()?,
+            l2_claim: encoded[64..96].try_into()?,
+            l2_claim_block: u64::from_be_bytes(encoded[96..104].try_into()?),
+            config_hash: encoded[104..136].try_into()?,
+        })
+    }
 }
 
 fn safe_default<V: core::fmt::Debug + Eq>(opt: Option<V>, default: V) -> anyhow::Result<V> {

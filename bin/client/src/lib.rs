@@ -71,10 +71,13 @@ pub async fn prove_zkvm_client() -> anyhow::Result<Receipt> {
         let prover = default_prover();
         let prove_info = prover.prove_with_opts(env, KAILUA_FPVM_ELF, &ProverOpts::groth16())?;
         println!(
-            "STARK proof of {} total cycles ({} user cycles) computed.",
+            "Proof of {} total cycles ({} user cycles) computed.",
             prove_info.stats.total_cycles, prove_info.stats.user_cycles
         );
-        prove_info.receipt.verify(KAILUA_FPVM_ID)?;
+        prove_info
+            .receipt
+            .verify(KAILUA_FPVM_ID)
+            .context("receipt verification")?;
         Ok::<_, anyhow::Error>(prove_info.receipt)
     });
     join!(client_task).0?

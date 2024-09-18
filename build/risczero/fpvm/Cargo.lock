@@ -680,14 +680,12 @@ dependencies = [
 
 [[package]]
 name = "bonsai-sdk"
-version = "1.1.0-rc.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1c44b61bc5b575a911390904019a811d5e22dca660e7b71d0d1b5f2d050ad498"
+version = "1.1.0"
+source = "git+https://github.com/risc0/risc0?tag=v1.1.0#2b50e65cb1a6aba413c24d89fea6bac7eb0f422c"
 dependencies = [
  "duplicate",
  "maybe-async",
  "reqwest",
- "risc0-groth16",
  "serde",
  "thiserror",
 ]
@@ -2730,9 +2728,8 @@ dependencies = [
 
 [[package]]
 name = "risc0-binfmt"
-version = "1.1.0-rc.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "96b998f490f8aa0b58f92f77ae5dc402e6dd684834d7bc23ed4a886a459935be"
+version = "1.1.0"
+source = "git+https://github.com/risc0/risc0?tag=v1.1.0#2b50e65cb1a6aba413c24d89fea6bac7eb0f422c"
 dependencies = [
  "anyhow",
  "borsh",
@@ -2745,9 +2742,8 @@ dependencies = [
 
 [[package]]
 name = "risc0-build"
-version = "1.1.0-rc.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2fbe884adf9b44439cdb7042619fb0c8a115cb27c69736dedf281e3012f78253"
+version = "1.1.0"
+source = "git+https://github.com/risc0/risc0?tag=v1.1.0#2b50e65cb1a6aba413c24d89fea6bac7eb0f422c"
 dependencies = [
  "anyhow",
  "cargo_metadata",
@@ -2764,9 +2760,8 @@ dependencies = [
 
 [[package]]
 name = "risc0-circuit-recursion"
-version = "1.1.0-rc.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3ed0599a338a4db39f2e93bb1734fdbb733137f87b2e192557d34fa82cc0b821"
+version = "1.1.0"
+source = "git+https://github.com/risc0/risc0?tag=v1.1.0#2b50e65cb1a6aba413c24d89fea6bac7eb0f422c"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -2779,9 +2774,8 @@ dependencies = [
 
 [[package]]
 name = "risc0-circuit-rv32im"
-version = "1.1.0-rc.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c763a92090f27611e3a1484e214f82889104f2740cb9e3e94b4af4acea2c766f"
+version = "1.1.0"
+source = "git+https://github.com/risc0/risc0?tag=v1.1.0#2b50e65cb1a6aba413c24d89fea6bac7eb0f422c"
 dependencies = [
  "anyhow",
  "metal",
@@ -2795,9 +2789,8 @@ dependencies = [
 
 [[package]]
 name = "risc0-core"
-version = "1.1.0-rc.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "16aed8a3f6537cc913b73b4f3c914f33fb6d7cf4e989a8f29b3fcba74893ed57"
+version = "1.1.0"
+source = "git+https://github.com/risc0/risc0?tag=v1.1.0#2b50e65cb1a6aba413c24d89fea6bac7eb0f422c"
 dependencies = [
  "bytemuck",
  "rand_core",
@@ -2805,9 +2798,8 @@ dependencies = [
 
 [[package]]
 name = "risc0-groth16"
-version = "1.1.0-rc.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "65f4f4bff32ad2f6f75d567f2495ead9b2dec71a08f473cec5aaba925c5eae3e"
+version = "1.1.0"
+source = "git+https://github.com/risc0/risc0?tag=v1.1.0#2b50e65cb1a6aba413c24d89fea6bac7eb0f422c"
 dependencies = [
  "anyhow",
  "ark-bn254",
@@ -2825,9 +2817,8 @@ dependencies = [
 
 [[package]]
 name = "risc0-zkp"
-version = "1.1.0-rc.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f9d8d3402ff50f52af60b377c34d74a3600c7b428eb6e374b52c521f5f4afca"
+version = "1.1.0"
+source = "git+https://github.com/risc0/risc0?tag=v1.1.0#2b50e65cb1a6aba413c24d89fea6bac7eb0f422c"
 dependencies = [
  "anyhow",
  "blake2",
@@ -2849,9 +2840,8 @@ dependencies = [
 
 [[package]]
 name = "risc0-zkvm"
-version = "1.1.0-rc.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8aea22e216737475960aad24c311b1514b86b4451d07dad3cfaf7e2a0e3a349b"
+version = "1.1.0"
+source = "git+https://github.com/risc0/risc0?tag=v1.1.0#2b50e65cb1a6aba413c24d89fea6bac7eb0f422c"
 dependencies = [
  "anyhow",
  "bincode",
@@ -2882,9 +2872,8 @@ dependencies = [
 
 [[package]]
 name = "risc0-zkvm-platform"
-version = "1.1.0-rc.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "854d4ed73ec2b227a41099639b6b618f775ec54cb93419966345f9936ef4a5b5"
+version = "1.1.0"
+source = "git+https://github.com/risc0/risc0?tag=v1.1.0#2b50e65cb1a6aba413c24d89fea6bac7eb0f422c"
 dependencies = [
  "bytemuck",
  "critical-section",

@@ -14,7 +14,7 @@
 
 use crate::channel::DuplexChannel;
 use crate::propose::Proposal;
-use crate::{output_at_block, FAULT_PROOF_GAME_TYPE};
+use crate::{derive_expected_journal, output_at_block, FAULT_PROOF_GAME_TYPE};
 use alloy::network::EthereumWallet;
 use alloy::primitives::{Address, FixedBytes, U256};
 use alloy::providers::{Provider, ProviderBuilder};
@@ -374,7 +374,8 @@ pub async fn handle_proposals(
                 correct,
             });
             // enqueue proving for any bad proposals challenged by this validator
-            if challenged
+            if !resolved
+                && challenged
                 && !proven
                 && game_contract.challenger().call().await?._0 == validator_address
             {
@@ -470,16 +471,49 @@ pub async fn handle_proposals(
                 "Utilizing {proof_label} proof in game at {}",
                 proposal.game_address
             );
+            // warn if the receipt is invalid
+            let expected_journal_bytes =
+                derive_expected_journal(&game_contract, is_fault_proof).await?;
+            let encoded_seal = risc0_ethereum_contracts::encode_seal(&receipt)?;
+            if receipt.journal.bytes != expected_journal_bytes {
+                error!("Receipt journal does not match journal expected by game contract.");
+            } else {
+                info!("Receipt journal validated.");
+            }
+            let expected_image_id = game_contract.imageId().call().await?.imageId_.0;
+            if receipt.verify(expected_image_id).is_err() {
+                error!("Could not verify receipt against image id in contract.");
+            } else {
+                info!("Receipt validated.");
+            }
             // only prove unproven games
-            if game_contract.proofStatus().call().await?._0 == 0 {
-                let snark = receipt.inner.groth16()?;
+            let proof_status = game_contract
+                .proofStatus()
+                .call()
+                .await
+                .context("proofStatus()")?
+                ._0;
+            if proof_status == 0 {
+                info!("Submitting proof {}.", hex::encode(&encoded_seal));
                 game_contract
-                    .prove(snark.seal.clone().into(), is_fault_proof)
+                    .prove(encoded_seal.into(), is_fault_proof)
                     .send()
-                    .await?
+                    .await
+                    .context("prove (send)")?
                     .get_receipt()
-                    .await?;
-                info!("Proof submitted!");
+                    .await
+                    .context("prove (get_receipt)")?;
+                info!("Resolving game.");
+                game_contract
+                    .resolve()
+                    .send()
+                    .await
+                    .context("resolve (send)")?
+                    .get_receipt()
+                    .await
+                    .context("resolve (get_receipt)")?;
+                let resolution = game_contract.status().call().await?._0;
+                info!("Game resolved: {resolution}");
             } else {
                 warn!("Skipping proof submission for already proven game at local index {local_index}.");
             }
