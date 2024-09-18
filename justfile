@@ -17,7 +17,7 @@ devnet-install:
   git clone --depth 1 --branch v1.9.1 --recursive https://github.com/ethereum-optimism/optimism.git
 
 devnet-build:
-  cargo build -F fault
+  cargo build -F devnet
 
 devnet-up:
   make -C optimism devnet-up > devnet.log

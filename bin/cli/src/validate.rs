@@ -24,7 +24,7 @@ use kailua_client::fpvm_proof_file_name;
 use kailua_contracts::IDisputeGameFactory::gameAtIndexReturn;
 use kailua_contracts::{FaultProofGame, IAnchorStateRegistry, IDisputeGameFactory};
 use kailua_host::fetch_rollup_config;
-use risc0_zkvm::Receipt;
+use risc0_zkvm::{InnerReceipt, MaybePruned, Receipt};
 use std::collections::HashMap;
 use std::env;
 use std::process::exit;
@@ -181,7 +181,11 @@ pub async fn handle_proofs(
         }
         debug!("proving_args {:?}", &proving_args);
         // Prove via kailua-host (re dev mode/bonsai: env vars inherited!)
-        let proving_task = Command::new(&kailua_host)
+        let mut kailua_host_command = Command::new(&kailua_host);
+        // get fake receipts when building under devnet
+        #[cfg(feature = "devnet")]
+        kailua_host_command.env("RISC0_DEV_MODE", "1");
+        let proving_task = kailua_host_command
             .args(proving_args)
             .spawn()
             .context("Invoking kailua-host")?
@@ -471,16 +475,30 @@ pub async fn handle_proposals(
                 "Utilizing {proof_label} proof in game at {}",
                 proposal.game_address
             );
-            // warn if the receipt is invalid
+            // warn if the receipt journal is invalid
             let expected_journal_bytes =
                 derive_expected_journal(&game_contract, is_fault_proof).await?;
-            let encoded_seal = risc0_ethereum_contracts::encode_seal(&receipt)?;
             if receipt.journal.bytes != expected_journal_bytes {
                 error!("Receipt journal does not match journal expected by game contract.");
             } else {
                 info!("Receipt journal validated.");
             }
+            // patch the receipt image id if in dev mode
             let expected_image_id = game_contract.imageId().call().await?.imageId_.0;
+            #[cfg(feature = "devnet")]
+            let receipt = {
+                let mut receipt = receipt;
+                let InnerReceipt::Fake(fake_inner_receipt) = &mut receipt.inner else {
+                    bail!("Found real receipt under devmode");
+                };
+                let MaybePruned::Value(claim) = &mut fake_inner_receipt.claim else {
+                    bail!("Fake receipt claim is pruned.");
+                };
+                warn!("DEVNET-ONLY: Patching fake receipt image id to match game contract.");
+                claim.pre = MaybePruned::Pruned(expected_image_id.into());
+                receipt
+            };
+            // verify that the receipt is valid
             if receipt.verify(expected_image_id).is_err() {
                 error!("Could not verify receipt against image id in contract.");
             } else {
@@ -494,6 +512,7 @@ pub async fn handle_proposals(
                 .context("proofStatus()")?
                 ._0;
             if proof_status == 0 {
+                let encoded_seal = risc0_ethereum_contracts::encode_seal(&receipt)?;
                 info!("Submitting proof {}.", hex::encode(&encoded_seal));
                 game_contract
                     .prove(encoded_seal.into(), is_fault_proof)

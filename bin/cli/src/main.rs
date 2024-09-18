@@ -27,7 +27,7 @@ async fn main() -> anyhow::Result<()> {
         Cli::Validate(validate_args) => validate(validate_args).await?,
         Cli::TestFault(fault_args) =>
         {
-            #[cfg(feature = "fault")]
+            #[cfg(feature = "devnet")]
             kailua_cli::fault::fault(fault_args).await?
         }
     }

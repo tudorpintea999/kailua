@@ -32,4 +32,4 @@ tracing.workspace = true
 assert_cmd = "2.0.16"
 
 [features]
-fault = []
+devnet = []
