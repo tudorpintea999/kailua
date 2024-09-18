@@ -123,9 +123,9 @@ dependencies = [
 
 [[package]]
 name = "alloy-genesis"
-version = "0.3.1"
+version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4b85dfc693e4a1193f0372a8f789df12ab51fcbe7be0733baa04939a86dd813b"
+checksum = "3a7a18afb0b318616b6b2b0e2e7ac5529d32a966c673b48091c9919e284e6aca"
 dependencies = [
  "alloy-primitives 0.8.0",
  "alloy-serde",
@@ -195,9 +195,9 @@ dependencies = [
 
 [[package]]
 name = "alloy-serde"
-version = "0.3.1"
+version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ae417978015f573b4a8c02af17f88558fb22e3fccd12e8a910cf6a2ff331cfcb"
+checksum = "731f75ec5d383107fd745d781619bd9cedf145836c51ecb991623d41278e71fa"
 dependencies = [
  "alloy-primitives 0.8.0",
  "serde",
@@ -206,13 +206,13 @@ dependencies = [
 
 [[package]]
 name = "alloy-sol-macro"
-version = "0.8.0"
+version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "183bcfc0f3291d9c41a3774172ee582fb2ce6eb6569085471d8f225de7bb86fc"
+checksum = "0458ccb02a564228fcd76efb8eb5a520521a8347becde37b402afec9a1b83859"
 dependencies = [
  "alloy-sol-macro-expander",
  "alloy-sol-macro-input",
- "proc-macro-error",
+ "proc-macro-error2",
  "proc-macro2",
  "quote",
  "syn 2.0.77",
@@ -220,15 +220,15 @@ dependencies = [
 
 [[package]]
 name = "alloy-sol-macro-expander"
-version = "0.8.0"
+version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "71c4d842beb7a6686d04125603bc57614d5ed78bf95e4753274db3db4ba95214"
+checksum = "2bc65475025fc1e84bf86fc840f04f63fcccdcf3cf12053c99918e4054dfbc69"
 dependencies = [
  "alloy-sol-macro-input",
  "const-hex",
  "heck 0.5.0",
  "indexmap",
- "proc-macro-error",
+ "proc-macro-error2",
  "proc-macro2",
  "quote",
  "syn 2.0.77",
@@ -238,9 +238,9 @@ dependencies = [
 
 [[package]]
 name = "alloy-sol-macro-input"
-version = "0.8.0"
+version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1306e8d3c9e6e6ecf7a39ffaf7291e73a5f655a2defd366ee92c2efebcdf7fee"
+checksum = "6ed10f0715a0b69fde3236ff3b9ae5f6f7c97db5a387747100070d3016b9266b"
 dependencies = [
  "const-hex",
  "dunce",
@@ -264,9 +264,9 @@ dependencies = [
 
 [[package]]
 name = "alloy-trie"
-version = "0.5.1"
+version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "398a977d774db13446b8cead8cfa9517aebf9e03fc8a1512892dc1e03e70bb04"
+checksum = "0a46c9c4fdccda7982e7928904bd85fe235a0404ee3d7e197fff13d61eac8b4f"
 dependencies = [
  "alloy-primitives 0.8.0",
  "alloy-rlp",
@@ -1699,7 +1699,7 @@ dependencies = [
 [[package]]
 name = "kona-client"
 version = "0.1.0"
-source = "git+https://github.com/hashcashier/kona?branch=kailua-2#8fc3406cc7423cc961b318f284cee4e80e6730fc"
+source = "git+https://github.com/hashcashier/kona?rev=07b052c#07b052c639c748f20eef9a5eecdace5f2ab3199e"
 dependencies = [
  "alloy-consensus",
  "alloy-eips",
@@ -1727,7 +1727,7 @@ dependencies = [
 [[package]]
 name = "kona-common"
 version = "0.0.3"
-source = "git+https://github.com/hashcashier/kona?branch=kailua-2#8fc3406cc7423cc961b318f284cee4e80e6730fc"
+source = "git+https://github.com/hashcashier/kona?rev=07b052c#07b052c639c748f20eef9a5eecdace5f2ab3199e"
 dependencies = [
  "anyhow",
  "cfg-if",
@@ -1737,7 +1737,7 @@ dependencies = [
 [[package]]
 name = "kona-common-proc"
 version = "0.0.3"
-source = "git+https://github.com/hashcashier/kona?branch=kailua-2#8fc3406cc7423cc961b318f284cee4e80e6730fc"
+source = "git+https://github.com/hashcashier/kona?rev=07b052c#07b052c639c748f20eef9a5eecdace5f2ab3199e"
 dependencies = [
  "anyhow",
  "cfg-if",
@@ -1750,7 +1750,7 @@ dependencies = [
 [[package]]
 name = "kona-derive"
 version = "0.0.3"
-source = "git+https://github.com/hashcashier/kona?branch=kailua-2#8fc3406cc7423cc961b318f284cee4e80e6730fc"
+source = "git+https://github.com/hashcashier/kona?rev=07b052c#07b052c639c748f20eef9a5eecdace5f2ab3199e"
 dependencies = [
  "alloc-no-stdlib",
  "alloy-consensus",
@@ -1771,7 +1771,7 @@ dependencies = [
 [[package]]
 name = "kona-executor"
 version = "0.0.2"
-source = "git+https://github.com/hashcashier/kona?branch=kailua-2#8fc3406cc7423cc961b318f284cee4e80e6730fc"
+source = "git+https://github.com/hashcashier/kona?rev=07b052c#07b052c639c748f20eef9a5eecdace5f2ab3199e"
 dependencies = [
  "alloy-consensus",
  "alloy-eips",
@@ -1787,7 +1787,7 @@ dependencies = [
 [[package]]
 name = "kona-mpt"
 version = "0.0.3"
-source = "git+https://github.com/hashcashier/kona?branch=kailua-2#8fc3406cc7423cc961b318f284cee4e80e6730fc"
+source = "git+https://github.com/hashcashier/kona?rev=07b052c#07b052c639c748f20eef9a5eecdace5f2ab3199e"
 dependencies = [
  "alloy-consensus",
  "alloy-primitives 0.8.0",
@@ -1801,7 +1801,7 @@ dependencies = [
 [[package]]
 name = "kona-preimage"
 version = "0.0.3"
-source = "git+https://github.com/hashcashier/kona?branch=kailua-2#8fc3406cc7423cc961b318f284cee4e80e6730fc"
+source = "git+https://github.com/hashcashier/kona?rev=07b052c#07b052c639c748f20eef9a5eecdace5f2ab3199e"
 dependencies = [
  "alloy-primitives 0.8.0",
  "anyhow",
@@ -1814,7 +1814,7 @@ dependencies = [
 [[package]]
 name = "kona-primitives"
 version = "0.0.2"
-source = "git+https://github.com/hashcashier/kona?branch=kailua-2#8fc3406cc7423cc961b318f284cee4e80e6730fc"
+source = "git+https://github.com/hashcashier/kona?rev=07b052c#07b052c639c748f20eef9a5eecdace5f2ab3199e"
 dependencies = [
  "alloy-consensus",
  "alloy-eips",
@@ -2309,6 +2309,28 @@ dependencies = [
  "proc-macro2",
  "quote",
  "version_check",
+]
+
+[[package]]
+name = "proc-macro-error-attr2"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "96de42df36bb9bba5542fe9f1a054b8cc87e172759a1868aa05c1f3acc89dfc5"
+dependencies = [
+ "proc-macro2",
+ "quote",
+]
+
+[[package]]
+name = "proc-macro-error2"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "11ec05c52be0a07b08061f7dd003e7d7092e0472bc731b4af7bb1ef876109802"
+dependencies = [
+ "proc-macro-error-attr2",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.77",
 ]
 
 [[package]]
@@ -3349,9 +3371,9 @@ dependencies = [
 
 [[package]]
 name = "syn-solidity"
-version = "0.8.0"
+version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "284c41c2919303438fcf8dede4036fd1e82d4fc0fbb2b279bd2a1442c909ca92"
+checksum = "4b95156f8b577cb59dc0b1df15c6f29a10afc5f8a7ac9786b0b5c68c19149278"
 dependencies = [
  "paste",
  "proc-macro2",

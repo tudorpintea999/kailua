@@ -52,7 +52,7 @@ pub fn run_client<
         let mut driver = DerivationDriver::new(
             boot.as_ref(),
             oracle.as_ref(),
-            beacon.clone(),
+            beacon,
             l1_provider,
             l2_provider.clone(),
         )
@@ -141,7 +141,7 @@ pub fn run_client<
     })
 }
 
-fn log(msg: &str) {
+pub fn log(msg: &str) {
     #[cfg(target_os = "zkvm")]
     risc0_zkvm::guest::env::log(msg);
     #[cfg(not(target_os = "zkvm"))]

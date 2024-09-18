@@ -15,7 +15,7 @@
 pub mod oracle;
 
 use crate::oracle::{HINT_WRITER, ORACLE_READER};
-use alloy_primitives::B256;
+use alloy_primitives::{keccak256, B256};
 use anyhow::Context;
 use kailua_build::{KAILUA_FPVM_ELF, KAILUA_FPVM_ID};
 use kailua_common::oracle::{FPVM_GET_PREIMAGE, FPVM_WRITE_HINT, ORACLE_LRU_SIZE};
@@ -90,9 +90,15 @@ pub fn fpvm_proof_file_name(l1_head: B256, l2_claim: B256, l2_output_root: B256)
     } else {
         "zkp"
     };
-    let prefix = B256::from(bytemuck::cast::<_, [u8; 32]>(KAILUA_FPVM_ID));
+    let data = [
+        bytemuck::cast::<_, [u8; 32]>(KAILUA_FPVM_ID).as_slice(),
+        l1_head.as_slice(),
+        l2_output_root.as_slice(),
+        l2_claim.as_slice()
+    ].concat();
+    let file_name = keccak256(data);
     format!(
-        "{}-{prefix}-{l1_head}_{l2_output_root}_{l2_claim}.{suffix}",
+        "risc0-{}-{file_name}.{suffix}",
         version.to_string()
     )
 }

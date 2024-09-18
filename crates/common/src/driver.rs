@@ -33,6 +33,7 @@ use kona_primitives::{BlockInfo, Header, L2AttributesWithParent, L2BlockInfo};
 use std::fmt::Debug;
 use std::sync::Arc;
 use tracing::{info, warn};
+use crate::client::log;
 
 /// The [DerivationDriver] struct is responsible for handling the [L2PayloadAttributes] derivation
 /// process.
@@ -81,6 +82,7 @@ where
     ) -> anyhow::Result<Self> {
         let cfg = Arc::new(boot_info.rollup_config.clone());
 
+        log("find_startup_info");
         // Fetch the startup information.
         let (l1_origin, l2_safe_head, l2_safe_head_header) = Self::find_startup_info(
             caching_oracle,
@@ -91,6 +93,7 @@ where
         .await?;
 
         // Construct the pipeline.
+        log("StatefulAttributesBuilder");
         let attributes = StatefulAttributesBuilder::new(
             cfg.clone(),
             l2_chain_provider.clone(),
@@ -107,10 +110,12 @@ where
         if l1_origin_number < boot_info.rollup_config.genesis.l1.number {
             l1_origin_number = boot_info.rollup_config.genesis.l1.number;
         }
+        log("l1_origin block_info_by_number");
         let l1_origin = chain_provider
             .block_info_by_number(l1_origin_number)
             .await?;
 
+        log("pipeline");
         let pipeline = PipelineBuilder::new()
             .rollup_config(cfg)
             .dap_source(dap)
@@ -179,10 +184,12 @@ where
         l2_chain_provider: &mut OracleL2ChainProvider<O>,
     ) -> anyhow::Result<(BlockInfo, L2BlockInfo, Sealed<Header>)> {
         // Find the initial safe head, based off of the starting L2 block number in the boot info.
+        log(&format!("StartingL2Output {}", boot_info.l2_output_root));
         caching_oracle
             .write(&HintType::StartingL2Output.encode_with(&[boot_info.l2_output_root.as_ref()]))
             .await?;
         let mut output_preimage = [0u8; 128];
+        log("get_exact");
         caching_oracle
             .get_exact(
                 PreimageKey::new(*boot_info.l2_output_root, PreimageKeyType::Keccak256),
@@ -193,11 +200,13 @@ where
         let safe_hash = output_preimage[96..128]
             .try_into()
             .map_err(|_| anyhow!("Invalid L2 output root"))?;
+        log("header_by_hash");
         let safe_header = l2_chain_provider.header_by_hash(safe_hash)?;
         let safe_head_info = l2_chain_provider
             .l2_block_info_by_number(safe_header.number)
             .await?;
 
+        log("block_info_by_number");
         let l1_origin = chain_provider
             .block_info_by_number(safe_head_info.l1_origin.number)
             .await?;
