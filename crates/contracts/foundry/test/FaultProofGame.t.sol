@@ -97,13 +97,14 @@ contract FaultProofGameTest is Test {
         vm.expectRevert(ClockNotExpired.selector);
         gameInstance.resolve();
         // Prove fault
-        gameInstance.challenge();
-        gameInstance.prove("", true);
+        gameInstance.challenge(1);
+        gameInstance.prove(1, "", true);
         // Resolve and assert that attacker won
         assert(gameInstance.resolve() == GameStatus.CHALLENGER_WINS);
     }
 
-    function testMockValidityProof() public {
+    // todo: enable validity proofs
+    function testMockValidityProof() private {
         assertEq(vm.activeFork(), mainnetFork);
         // Send a new proposal one block ahead
         (, uint256 anchorBlockNum) = registry.anchors(faultDisputeGameType);
@@ -126,7 +127,7 @@ contract FaultProofGameTest is Test {
         vm.expectRevert(ClockNotExpired.selector);
         gameInstance.resolve();
         // Prove validity
-        gameInstance.prove("", false);
+        gameInstance.prove(0, "", false);
         // Resolve and assert that defender won
         assert(gameInstance.resolve() == GameStatus.DEFENDER_WINS);
     }

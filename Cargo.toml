@@ -43,15 +43,15 @@ kailua-contracts = { path = "crates/contracts" }
 kailua-host = { path = "bin/host" }
 
 # Kona "https://github.com/ethereum-optimism/kona"
-kona-client = { git = "https://github.com/hashcashier/kona", rev = "07b052c" }
-kona-common = { git = "https://github.com/hashcashier/kona", rev = "07b052c" }
-kona-common-proc = { git = "https://github.com/hashcashier/kona", rev = "07b052c" }
-kona-derive = { git = "https://github.com/hashcashier/kona", rev = "07b052c", default-features = false }
-kona-executor = { git = "https://github.com/hashcashier/kona", rev = "07b052c" }
-kona-host = { git = "https://github.com/hashcashier/kona", rev = "07b052c" }
-kona-mpt = { git = "https://github.com/hashcashier/kona", rev = "07b052c" }
-kona-preimage = { git = "https://github.com/hashcashier/kona", rev = "07b052c", features = ["rkyv"] }
-kona-primitives = { git = "https://github.com/hashcashier/kona", rev = "07b052c" }
+kona-client = { git = "https://github.com/hashcashier/kona", branch = "kailua-2" }
+kona-common = { git = "https://github.com/hashcashier/kona", branch = "kailua-2" }
+kona-common-proc = { git = "https://github.com/hashcashier/kona", branch = "kailua-2" }
+kona-derive = { git = "https://github.com/hashcashier/kona", branch = "kailua-2", default-features = false }
+kona-executor = { git = "https://github.com/hashcashier/kona", branch = "kailua-2" }
+kona-host = { git = "https://github.com/hashcashier/kona", branch = "kailua-2" }
+kona-mpt = { git = "https://github.com/hashcashier/kona", branch = "kailua-2" }
+kona-preimage = { git = "https://github.com/hashcashier/kona", branch = "kailua-2", features = ["rkyv"] }
+kona-primitives = { git = "https://github.com/hashcashier/kona", branch = "kailua-2" }
 
 # RISC Zero
 risc0-build = { version = "1.1.0" }
