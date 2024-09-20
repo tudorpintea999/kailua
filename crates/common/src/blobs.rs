@@ -72,9 +72,7 @@ impl<P: BlobProvider + Sync + Send> BlobProvider for RISCZeroBlobProvider<P> {
         //         .expect("Failed to construct c_kzg blob from bytes");
         //     let kzg_commitment = c_kzg::KzgCommitment::blob_to_kzg_commitment(&blob, &KZG.1)
         //         .expect("Failed to convert blob to commitment");
-        //     let hashed_commitment = *SHA2::hash_bytes(kzg_commitment.as_slice());
-        //     let versioned_hash = [&[0x01u8], &hashed_commitment.as_bytes()[1..]].concat();
-        //     let versioned_hash_bytes: [u8; 32] = versioned_hash.as_slice().try_into().unwrap();
+        //     let versioned_hash_bytes: versioned_commitment(kzg_commitment.as_slice());
         //     if indexed_blob_hash.hash.0 != versioned_hash_bytes {
         //         risc0_zkvm::guest::env::log("blobs are bad..");
         //         return Err(BlobProviderError::Custom(anyhow!("Blob hash mismatch")));

@@ -13,7 +13,7 @@
 // limitations under the License.
 //
 // SPDX-License-Identifier: Apache-2.0
-pragma solidity ^0.8.15;
+pragma solidity ^0.8.24;
 
 import "./vendor/FlatOPImportV1.4.0.sol";
 import "./vendor/FlatR0ImportV1.0.0.sol";
@@ -151,6 +151,27 @@ contract FaultProofGame is Clone, IDisputeGame {
         // INVARIANT: The game must not have already been initialized.
         if (createdAt.raw() > 0) revert AlreadyInitialized();
 
+        // Revert if the calldata size is not the expected length.
+        //
+        // This is to prevent adding extra or omitting bytes from to `extraData` that result in a different game UUID
+        // in the factory, but are not used by the game, which would allow for multiple dispute games for the same
+        // output proposal to be created.
+        //
+        // Expected length: 0x8A
+        // - 0x04 selector
+        // - 0x14 creator address
+        // - 0x20 root claim
+        // - 0x20 l1 head
+        // - 0x30 extraData (0x05 l2BlockNumber, 0x05 parentGameIndex, 0x20 proposalBlobHash)
+        // - 0x02 CWIA bytes
+        assembly {
+            if iszero(eq(calldatasize(), 0x8A)) {
+            // Store the selector for `BadExtraData()` & revert
+                mstore(0x00, 0x9824bdab)
+                revert(0x1C, 0x04)
+            }
+        }
+
         // Do not allow the game to be initialized if the root claim corresponds to a block at or before the
         // starting block number.
         uint256 parentBlockNumber = parentGame().l2BlockNumber();
@@ -162,8 +183,8 @@ contract FaultProofGame is Clone, IDisputeGame {
         }
 
         // Validate the intermediate output blob hash
-        if (blobhash(0) != proposalBlobHash()) {
-            revert BlobHashMismatch(proposalBlobHash(), blobhash(0));
+        if (blobhash(0) != proposalBlobHash().raw()) {
+            revert BlobHashMismatch(proposalBlobHash().raw(), blobhash(0));
         }
 
         // Record the bonded value
@@ -203,8 +224,8 @@ contract FaultProofGame is Clone, IDisputeGame {
     }
 
     /// @notice The hash of the blob of intermediate outputs posted along the proposal.
-    function proposalBlobHash() public pure returns (bytes32 parentGameIndex_) {
-        parentGameIndex_ = _getArgBytes32(0x64);
+    function proposalBlobHash() public pure returns (Hash blobHash_) {
+        blobHash_ = Hash.wrap(_getArgBytes32(0x64));
     }
 
     /// @notice Getter for the extra data.

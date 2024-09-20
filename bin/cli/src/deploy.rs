@@ -264,8 +264,8 @@ pub async fn deploy(args: DeployArgs) -> anyhow::Result<()> {
         *mock_verifier_contract.address(),
         bytemuck::cast::<[u32; 8], [u8; 32]>(KAILUA_FPVM_ID).into(),
         rollup_config_hash.into(),
-        Uint::from(128),
-        60,
+        Uint::from(64),
+        300,
         FAULT_PROOF_GAME_TYPE,
         Address::from_str(&args.registry_contract)?,
     )

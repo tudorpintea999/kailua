@@ -15,6 +15,7 @@
 // Parts of the below code are copied from various files under https://github.com/anton-rs/kona.
 // As such, the copied parts may not be subject to the license or copyright notice above.
 
+use crate::client::log;
 use alloy_primitives::Sealed;
 use anyhow::anyhow;
 use kona_client::l1::{OracleL1ChainProvider, OraclePipeline};
@@ -33,7 +34,6 @@ use kona_primitives::{BlockInfo, Header, L2AttributesWithParent, L2BlockInfo};
 use std::fmt::Debug;
 use std::sync::Arc;
 use tracing::{info, warn};
-use crate::client::log;
 
 /// The [DerivationDriver] struct is responsible for handling the [L2PayloadAttributes] derivation
 /// process.

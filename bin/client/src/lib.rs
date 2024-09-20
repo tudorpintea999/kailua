@@ -94,11 +94,9 @@ pub fn fpvm_proof_file_name(l1_head: B256, l2_claim: B256, l2_output_root: B256)
         bytemuck::cast::<_, [u8; 32]>(KAILUA_FPVM_ID).as_slice(),
         l1_head.as_slice(),
         l2_output_root.as_slice(),
-        l2_claim.as_slice()
-    ].concat();
+        l2_claim.as_slice(),
+    ]
+    .concat();
     let file_name = keccak256(data);
-    format!(
-        "risc0-{}-{file_name}.{suffix}",
-        version.to_string()
-    )
+    format!("risc0-{}-{file_name}.{suffix}", version.to_string())
 }

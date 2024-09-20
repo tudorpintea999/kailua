@@ -12,26 +12,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::fault::FaultArgs;
-use crate::validate::ValidateArgs;
 use alloy::contract::SolCallBuilder;
 use alloy::network::{Network, TransactionBuilder};
 use alloy::primitives::{Address, FixedBytes, Uint, U256};
 use alloy::providers::{Provider, ReqwestProvider};
 use alloy::transports::Transport;
 use anyhow::Context;
-use deploy::DeployArgs;
 use kailua_contracts::FaultProofGame::FaultProofGameInstance;
 use kailua_contracts::Safe::SafeInstance;
-use propose::ProposeArgs;
 use std::str::FromStr;
 use tracing::debug;
 
+pub mod blob_provider;
 pub mod channel;
 pub mod deploy;
 pub mod fault;
+pub mod proposal;
 pub mod propose;
-pub mod validate;
+// pub mod validate;
 
 pub const FAULT_PROOF_GAME_TYPE: u32 = 1337;
 
@@ -40,10 +38,10 @@ pub const FAULT_PROOF_GAME_TYPE: u32 = 1337;
 #[command(bin_name = "kailua-cli")]
 #[command(author, version, about, long_about = None)]
 pub enum Cli {
-    Deploy(DeployArgs),
-    Propose(ProposeArgs),
-    Validate(ValidateArgs),
-    TestFault(FaultArgs),
+    Deploy(crate::deploy::DeployArgs),
+    Propose(crate::propose::ProposeArgs),
+    // Validate(crate::validate::ValidateArgs),
+    TestFault(crate::fault::FaultArgs),
 }
 
 impl Cli {
@@ -51,7 +49,7 @@ impl Cli {
         match self {
             Cli::Deploy(args) => args.v,
             Cli::Propose(args) => args.v,
-            Cli::Validate(args) => args.v,
+            // Cli::Validate(args) => args.v,
             Cli::TestFault(args) => args.propose_args.v,
         }
     }
@@ -118,22 +116,7 @@ pub async fn derive_expected_journal<T: Transport + Clone, P: Provider<T, N>, N:
     game_contract: &FaultProofGameInstance<T, P, N>,
     is_fault_proof: bool,
 ) -> anyhow::Result<Vec<u8>> {
-    // bytes32 journalDigest = sha256(
-    //     abi.encodePacked(
-    //         // The L1 head hash containing the safe L2 chain data that may reproduce the L2 head hash.
-    //         l1Head().raw(),
-    //         // The latest finalized L2 output root.
-    //         parentGame().rootClaim().raw(),
-    //         // The L2 output root claim.
-    //         rootClaim().raw(),
-    //         // The L2 claim block number.
-    //         uint64(l2BlockNumber()),
-    //         // The configuration hash for this game
-    //         GAME_CONFIG_HASH,
-    //         // True iff the proof demonstrates fraud, false iff it demonstrates integrity
-    //         isFaultProof
-    //     )
-    // );
+    // todo: revise
     let l1_head = game_contract.l1Head().call().await?.l1Head_.0;
     let parent_contract_address = game_contract.parentGame().call().await?.parentGame_;
     let parent_contract =

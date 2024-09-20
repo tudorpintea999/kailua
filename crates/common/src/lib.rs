@@ -14,6 +14,7 @@
 
 use alloy_eips::eip1559::BaseFeeParams;
 use alloy_primitives::{Address, B256};
+use alloy_rpc_types_beacon::sidecar::BlobData;
 use anyhow::Context;
 use kona_client::BootInfo;
 use kona_primitives::RollupConfig;
@@ -202,4 +203,14 @@ pub fn config_hash(rollup_config: &RollupConfig) -> anyhow::Result<[u8; 32]> {
     .concat();
     let digest = SHA2::hash_bytes(rollup_config_bytes.as_slice());
     Ok::<[u8; 32], anyhow::Error>(digest.as_bytes().try_into()?)
+}
+
+pub fn intermediate_outputs(blob_data: &BlobData, blocks: usize) -> anyhow::Result<Vec<B256>> {
+    let mut outputs = vec![];
+    for i in 0..blocks {
+        let index = 32 * i;
+        let bytes: [u8; 32] = blob_data.blob.0[index..index + 32].try_into()?;
+        outputs.push(B256::from(bytes));
+    }
+    Ok(outputs)
 }
