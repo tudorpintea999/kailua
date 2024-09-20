@@ -267,11 +267,6 @@ contract FaultProofGame is Clone, IDisputeGame {
         status_ = gameStatus[0];
     }
 
-    /// @notice Returns the game status of an intermediate output
-    function status(uint32 outputNumber) public view returns (GameStatus status_) {
-        status_ = gameStatus[outputNumber];
-    }
-
     /// @notice The timestamp of when the first claim against an output was made
     mapping(uint32 => Timestamp) public challengedAt;
 

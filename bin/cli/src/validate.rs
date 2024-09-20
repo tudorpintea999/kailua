@@ -14,15 +14,15 @@
 
 use crate::blob_provider::BlobProvider;
 use crate::channel::DuplexChannel;
-use crate::propose::Proposal;
-use crate::{block_hash, derive_expected_journal, output_at_block, FAULT_PROOF_GAME_TYPE};
+use crate::proposal::Proposal;
+use crate::{blob_fe_proof, block_hash, hash_to_fe, output_at_block, FAULT_PROOF_GAME_TYPE};
 use alloy::network::EthereumWallet;
-use alloy::primitives::{Address, FixedBytes, U256};
-use alloy::providers::{Provider, ProviderBuilder};
+use alloy::primitives::{Address, Bytes, FixedBytes, U256};
+use alloy::providers::{ProviderBuilder};
 use alloy::signers::local::LocalSigner;
 use anyhow::{bail, Context};
 use kailua_client::fpvm_proof_file_name;
-use kailua_common::intermediate_outputs;
+use kailua_common::{intermediate_outputs, ProofJournal};
 use kailua_contracts::IDisputeGameFactory::gameAtIndexReturn;
 use kailua_contracts::{FaultProofGame, IAnchorStateRegistry, IDisputeGameFactory};
 use kailua_host::fetch_rollup_config;
@@ -189,18 +189,27 @@ pub async fn handle_proofs(
         // pass arguments to point at target block
         kailua_host_command.args(proving_args);
         debug!("kailua_host_command {:?}", &kailua_host_command);
-        let proving_task = kailua_host_command
-            .spawn()
-            .context("Invoking kailua-host")?
-            .wait()
-            .await?;
-        if !proving_task.success() {
-            error!("Proving task failure.");
+        {
+            let proving_task = kailua_host_command
+                .kill_on_drop(true)
+                .spawn()
+                .context("Invoking kailua-host")?
+                .wait()
+                // .output()
+                .await?;
+            if !proving_task.success() {
+                error!("Proving task failure.");
+            } else {
+                info!("Proving task successful.");
+            }
         }
+        sleep(Duration::from_secs(1)).await;
         // Read receipt file
         let mut receipt_file = File::open(proof_file_name.clone()).await?;
+        info!("Opened receipt file {proof_file_name}.");
         let mut receipt_data = Vec::new();
         receipt_file.read_to_end(&mut receipt_data).await?;
+        info!("Read entire receipt file.");
         let receipt: Receipt = bincode::deserialize(&receipt_data)?;
         // Send proof via the channel
         channel
@@ -428,7 +437,7 @@ pub async fn handle_proposals(
                 continue;
             }
             // Issue possible challenge
-            let challenged_position = if !is_correct_parent {
+            let challenged_position = if !local_proposal.is_correct_parent {
                 // challenge based on expected parent resolution in favor of challenger
                 0u32
             } else {
@@ -436,17 +445,21 @@ pub async fn handle_proposals(
                 local_proposal
                     .correct
                     .iter()
+                    // skip the first flag which denotes invalid root claim
                     .skip(1)
                     .position(|v| !v)
                     .map(|p| p + 1)
-                    .unwrap_or(local_proposal.correct.len())
+                    .unwrap_or(local_proposal.correct.len()) as u32
             };
             // query for on-chain challenge status
-            if game_contract.challengedAt(challenged_position)
+            if game_contract
+                .challengedAt(challenged_position)
                 .call()
                 .await
-                .context(&format!("challengedAt({challenged_position})"))?
-                ._0 > 0 {
+                .context(format!("challengedAt({challenged_position})"))?
+                ._0
+                > 0
+            {
                 local_proposal.challenged.insert(challenged_position);
             }
             // issue challenge if needed
@@ -457,27 +470,40 @@ pub async fn handle_proposals(
                     .value(bond_value / U256::from(2))
                     .send()
                     .await
-                    .context(&format!("challenge({challenged_position}) (send)"))?
+                    .context(format!("challenge({challenged_position}) (send)"))?
                     .get_receipt()
                     .await
-                    .context(&format!("challenge({challenged_position}) (get_receipt)"))?;
+                    .context(format!("challenge({challenged_position}) (get_receipt)"))?;
             }
             // check challenger
-            if game_contract.challenger(challenged_position).call().await?._0 != validator_address {
+            if game_contract
+                .challenger(challenged_position)
+                .call()
+                .await?
+                ._0
+                != validator_address
+            {
                 info!("{correct} proposal at factory index {factory_index} was challenged by another validator.");
                 continue;
             }
             // query for on-chain proof status
-            let proof_status = game_contract.provenAt(challenged_position)
+            let proof_status = game_contract
+                .provenAt(challenged_position)
                 .call()
                 .await
-                .context(&format!("provenAt({challenged_position})"))?
+                .context(format!("provenAt({challenged_position})"))?
                 ._0;
             if proof_status > 0 {
-                local_proposal.proven.insert(challenged_position, proof_status == 2);
+                local_proposal
+                    .proven
+                    .insert(challenged_position, proof_status == 2);
             }
             // if the challenged output is unproven, enqueue a proving task
-            if challenged_position != 0 && local_proposal.is_output_proven(challenged_position) {
+            if challenged_position != 0
+                && local_proposal
+                    .is_output_proven(challenged_position)
+                    .is_none()
+            {
                 // Read additional data for Kona invocation
                 info!("Requesting proof for local index {local_index}.");
                 let l1_head = game_contract
@@ -493,13 +519,21 @@ pub async fn handle_proposals(
                     .await
                     .context("startingBlockNumber")?
                     .startingBlockNumber_
-                    .to::<u64>() + challenged_position as u64 - 1;
+                    .to::<u64>()
+                    + challenged_position as u64
+                    - 1;
                 debug!("l2_head_number {:?}", &l2_head_number);
-                let l2_head = block_hash(&l2_node_provider, l2_head_number).await.context("block_hash")?;
+                let l2_head = block_hash(&l2_node_provider, l2_head_number)
+                    .await
+                    .context("block_hash")?;
                 debug!("l2_head {:?}", &l2_head);
-                let l2_output_root = output_at_block(&op_node_provider, l2_head_number).await.context("output_at_block")?;
+                let l2_output_root = output_at_block(&op_node_provider, l2_head_number)
+                    .await
+                    .context("output_at_block")?;
                 let l2_block_number = l2_head_number + 1;
-                let l2_claim = output_at_block(&op_node_provider, l2_block_number).await.context("output_at_block")?;
+                let l2_claim = output_at_block(&op_node_provider, l2_block_number)
+                    .await
+                    .context("output_at_block")?;
                 // Message proving task
                 channel
                     .sender
@@ -528,22 +562,37 @@ pub async fn handle_proposals(
                 bail!("Unexpected message type.");
             };
             let proposal = &proposal_tree[local_index];
+            let proposal_parent = &proposal_tree[proposal.parent_local_index];
             let game_contract =
                 FaultProofGame::new(proposal.game_address, dispute_game_factory.provider());
-            let is_fault_proof = *receipt.journal.bytes.last().unwrap() > 0;
+            let proof_journal = ProofJournal::decode_packed(receipt.journal.as_ref())?;
+            let io_blob = proposal
+                .intermediate_output_blob
+                .clone()
+                .expect("Missing blob data.");
+            let proposal_span = (proposal.output_block_number - proposal_parent.output_block_number) as u32;
+            let challenge_position =
+                (proof_journal.l2_claim_block - proposal_parent.output_block_number) as u32;
+            let io_hashes = intermediate_outputs(&io_blob, proposal_span as usize)?;
+            let challenged_output = io_hashes
+                .get(challenge_position as usize - 1)
+                .copied()
+                .unwrap_or(proposal.output_root);
+            let is_fault_proof =
+                hash_to_fe(proof_journal.l2_claim) != hash_to_fe(challenged_output);
             let proof_label = if is_fault_proof { "fault" } else { "validity" };
             info!(
                 "Utilizing {proof_label} proof in game at {}",
                 proposal.game_address
             );
-            // warn if the receipt journal is invalid
-            let expected_journal_bytes =
-                derive_expected_journal(&game_contract, is_fault_proof).await?;
-            if receipt.journal.bytes != expected_journal_bytes {
-                error!("Receipt journal does not match journal expected by game contract.");
-            } else {
-                info!("Receipt journal validated.");
-            }
+            // todo: // warn if the receipt journal is invalid
+            // let expected_journal_bytes =
+            //     derive_expected_journal(&game_contract, is_fault_proof).await?;
+            // if receipt.journal.bytes != expected_journal_bytes {
+            //     error!("Receipt journal does not match journal expected by game contract.");
+            // } else {
+            //     info!("Receipt journal validated.");
+            // }
             // patch the receipt image id if in dev mode
             let expected_image_id = game_contract.imageId().call().await?.imageId_.0;
             #[cfg(feature = "devnet")]
@@ -567,32 +616,50 @@ pub async fn handle_proposals(
             }
             // only prove unproven games
             let proof_status = game_contract
-                .proofStatus()
+                .proofStatus(challenge_position)
                 .call()
                 .await
-                .context("proofStatus()")?
+                .context(format!("proofStatus({challenge_position})"))?
                 ._0;
             if proof_status == 0 {
                 let encoded_seal = risc0_ethereum_contracts::encode_seal(&receipt)?;
+                let mut proofs = vec![];
+                if challenge_position > 1 {
+                    let (proof, _) = blob_fe_proof(&io_blob.blob, challenge_position as usize - 2)?;
+                    proofs.push(Bytes::from(proof.to_vec()));
+                }
+                if challenge_position < proposal_span {
+                    let (proof, _) = blob_fe_proof(&io_blob.blob, challenge_position as usize - 1)?;
+                    proofs.push(Bytes::from(proof.to_vec()));
+                }
+
                 info!("Submitting proof {}.", hex::encode(&encoded_seal));
                 game_contract
-                    .prove(encoded_seal.into(), is_fault_proof)
+                    .prove(
+                        challenge_position,
+                        encoded_seal.into(),
+                        proof_journal.l2_output_root,
+                        challenged_output,
+                        proof_journal.l2_claim,
+                        Bytes::from(io_blob.kzg_commitment.to_vec()),
+                        proofs,
+                    )
                     .send()
                     .await
                     .context("prove (send)")?
                     .get_receipt()
                     .await
                     .context("prove (get_receipt)")?;
-                info!("Resolving game.");
+                info!("Resolving outout {challenge_position}.");
                 game_contract
-                    .resolve()
+                    .resolveClaim(challenge_position)
                     .send()
                     .await
-                    .context("resolve (send)")?
+                    .context("resolveClaim (send)")?
                     .get_receipt()
                     .await
-                    .context("resolve (get_receipt)")?;
-                let resolution = game_contract.status().call().await?._0;
+                    .context("resolveClaim (get_receipt)")?;
+                let resolution = game_contract.status().call().await?.status_;
                 info!("Game resolved: {resolution}");
             } else {
                 warn!("Skipping proof submission for already proven game at local index {local_index}.");

@@ -18,9 +18,10 @@ use alloy::primitives::{Address, FixedBytes, Uint, B256, U256};
 use alloy::providers::{Provider, ReqwestProvider};
 use alloy::transports::Transport;
 use anyhow::Context;
-use kailua_contracts::FaultProofGame::FaultProofGameInstance;
+// use kailua_contracts::FaultProofGame::FaultProofGameInstance;
 use kailua_contracts::Safe::SafeInstance;
 use std::str::FromStr;
+use alloy::consensus::{Blob, BlobTransactionSidecar};
 use tracing::debug;
 
 pub mod blob_provider;
@@ -29,7 +30,7 @@ pub mod deploy;
 pub mod fault;
 pub mod proposal;
 pub mod propose;
-// pub mod validate;
+pub mod validate;
 
 pub const FAULT_PROOF_GAME_TYPE: u32 = 1337;
 
@@ -40,7 +41,7 @@ pub const FAULT_PROOF_GAME_TYPE: u32 = 1337;
 pub enum Cli {
     Deploy(deploy::DeployArgs),
     Propose(propose::ProposeArgs),
-    // Validate(validate::ValidateArgs),
+    Validate(validate::ValidateArgs),
     TestFault(fault::FaultArgs),
 }
 
@@ -49,7 +50,7 @@ impl Cli {
         match self {
             Cli::Deploy(args) => args.v,
             Cli::Propose(args) => args.v,
-            // Cli::Validate(args) => args.v,
+            Cli::Validate(args) => args.v,
             Cli::TestFault(args) => args.propose_args.v,
         }
     }
@@ -130,32 +131,65 @@ pub async fn block_hash(
     )?)
 }
 
-pub async fn derive_expected_journal<T: Transport + Clone, P: Provider<T, N>, N: Network>(
-    game_contract: &FaultProofGameInstance<T, P, N>,
-) -> anyhow::Result<Vec<u8>> {
-    let l1_head = game_contract.l1Head().call().await?.l1Head_.0;
-    let parent_contract_address = game_contract.parentGame().call().await?.parentGame_;
-    let parent_contract =
-        FaultProofGameInstance::new(parent_contract_address, game_contract.provider());
-    let l2_output_root = parent_contract.rootClaim().call().await?.rootClaim_.0;
-    let l2_claim = game_contract.rootClaim().call().await?.rootClaim_.0;
-    let l2_claim_block = game_contract
-        .l2BlockNumber()
-        .call()
-        .await?
-        .l2BlockNumber_
-        .to::<u64>()
-        .to_be_bytes();
-    let config_hash = game_contract.configHash().call().await?.configHash_.0;
-    Ok([
-        l1_head.as_slice(),
-        l2_output_root.as_slice(),
-        l2_claim.as_slice(),
-        l2_claim_block.as_slice(),
-        config_hash.as_slice(),
-    ]
-    .concat())
+pub fn blob_sidecar(blob: Blob) -> anyhow::Result<BlobTransactionSidecar> {
+    let c_kzg_blob = c_kzg::Blob::from_bytes(blob.as_slice())?;
+    let settings = alloy::consensus::EnvKzgSettings::default();
+    let commitment = c_kzg::KzgCommitment::blob_to_kzg_commitment(&c_kzg_blob, settings.get())
+        .expect("Failed to convert blob to commitment");
+    let proof = c_kzg::KzgProof::compute_blob_kzg_proof(
+        &c_kzg_blob,
+        &commitment.to_bytes(),
+        settings.get(),
+    )?;
+    Ok(BlobTransactionSidecar::new(
+        vec![blob],
+        vec![commitment.to_bytes().into_inner().into()],
+        vec![proof.to_bytes().into_inner().into()],
+    ))
 }
+
+pub fn blob_fe_proof(blob: &Blob, index: usize) -> anyhow::Result<(c_kzg::Bytes48, c_kzg::Bytes32)> {
+    let z = c_kzg::Bytes32::new(U256::from(index).to_be_bytes());
+    let c_kzg_blob = c_kzg::Blob::from_bytes(blob.as_slice())?;
+    let settings = alloy::consensus::EnvKzgSettings::default();
+    let (proof, value) = c_kzg::KzgProof::compute_kzg_proof(
+        &c_kzg_blob,
+        &z,
+        settings.get()
+    )?;
+    Ok((proof.to_bytes(), value))
+}
+
+// pub async fn derive_expected_journal<T: Transport + Clone, P: Provider<T, N>, N: Network>(
+//     game_contract: &FaultProofGameInstance<T, P, N>,
+//     output_number: u32,
+//     safe_output: B256,
+//     proposed_output: B256,
+//     computed_output: B256
+// ) -> anyhow::Result<Vec<u8>> {
+//     let l1_head = game_contract.l1Head().call().await?.l1Head_.0;
+//     let parent_contract_address = game_contract.parentGame().call().await?.parentGame_;
+//     let parent_contract =
+//         FaultProofGameInstance::new(parent_contract_address, game_contract.provider());
+//     let l2_output_root = parent_contract.rootClaim().call().await?.rootClaim_.0;
+//     let l2_claim = game_contract.rootClaim().call().await?.rootClaim_.0;
+//     let l2_claim_block = game_contract
+//         .l2BlockNumber()
+//         .call()
+//         .await?
+//         .l2BlockNumber_
+//         .to::<u64>()
+//         .to_be_bytes();
+//     let config_hash = game_contract.configHash().call().await?.configHash_.0;
+//     Ok([
+//         l1_head.as_slice(),
+//         l2_output_root.as_slice(),
+//         l2_claim.as_slice(),
+//         l2_claim_block.as_slice(),
+//         config_hash.as_slice(),
+//     ]
+//     .concat())
+// }
 
 pub fn hash_to_fe(mut hash: B256) -> B256 {
     hash.0[0] &= u8::MAX >> 2;

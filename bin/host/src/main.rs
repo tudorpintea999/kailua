@@ -28,7 +28,8 @@ async fn main() -> anyhow::Result<()> {
     // compute receipt if uncached
     let file_name =
         fpvm_proof_file_name(cfg.kona.l1_head, cfg.kona.l2_claim, cfg.kona.l2_output_root);
-    if File::open(file_name.clone()).await.is_err() {
+    let file = File::open(file_name.clone()).await;
+    if file.is_err() {
         info!("Computing uncached receipt.");
         let tmp_dir = tempdir()?;
         generate_rollup_config(&mut cfg, &tmp_dir).await?;
@@ -38,6 +39,7 @@ async fn main() -> anyhow::Result<()> {
             .expect("Proving failure");
     } else {
         info!("Proving skipped. Receipt file {file_name} already exists.");
+        drop(file);
     }
 
     info!("Exiting host program.");

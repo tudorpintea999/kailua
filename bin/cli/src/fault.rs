@@ -94,9 +94,17 @@ pub async fn fault(args: FaultArgs) -> anyhow::Result<()> {
         .gameCount_
         .to_be_bytes();
     let proposed_block_number = anchor_block_number + args.fault_block_count;
+    // fuzzy io
+    let blob = alloy::eips::eip4844::Blob::right_padding_from(b"prove me wrong");
+    let sidecar = crate::blob_sidecar(blob)?;
+
     let extra_data = [
         proposed_block_number.abi_encode_packed(),
         first_game_index.abi_encode_packed(),
+        sidecar
+            .versioned_hash_for_blob(0)
+            .unwrap()
+            .abi_encode_packed(),
     ]
     .concat();
     dispute_game_factory
@@ -106,6 +114,7 @@ pub async fn fault(args: FaultArgs) -> anyhow::Result<()> {
             Bytes::from(extra_data),
         )
         .value(bond_value)
+        .sidecar(sidecar)
         .send()
         .await
         .context("create FaultProofGame (send)")?
