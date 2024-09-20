@@ -25,7 +25,7 @@ import "../src/vendor/FlatR0ImportV1.0.0.sol";
 /// @notice Error raised when this verifier receives a receipt with a selector that does not match
 ///         its own. The selector value is calculated from the verifier parameters, and so this
 ///         usually indicates a mismatch between the version of the prover and this verifier.
-    error SelectorMismatch(bytes4 received, bytes4 expected);
+error SelectorMismatch(bytes4 received, bytes4 expected);
 
 /// @notice Mock verifier contract for RISC Zero receipts of execution.
 contract RiscZeroMockVerifier is IRiscZeroVerifier {

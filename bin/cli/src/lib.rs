@@ -14,7 +14,7 @@
 
 use alloy::contract::SolCallBuilder;
 use alloy::network::{Network, TransactionBuilder};
-use alloy::primitives::{Address, FixedBytes, Uint, U256};
+use alloy::primitives::{Address, FixedBytes, Uint, B256, U256};
 use alloy::providers::{Provider, ReqwestProvider};
 use alloy::transports::Transport;
 use anyhow::Context;
@@ -38,10 +38,10 @@ pub const FAULT_PROOF_GAME_TYPE: u32 = 1337;
 #[command(bin_name = "kailua-cli")]
 #[command(author, version, about, long_about = None)]
 pub enum Cli {
-    Deploy(crate::deploy::DeployArgs),
-    Propose(crate::propose::ProposeArgs),
-    // Validate(crate::validate::ValidateArgs),
-    TestFault(crate::fault::FaultArgs),
+    Deploy(deploy::DeployArgs),
+    Propose(propose::ProposeArgs),
+    // Validate(validate::ValidateArgs),
+    TestFault(fault::FaultArgs),
 }
 
 impl Cli {
@@ -112,11 +112,27 @@ pub async fn output_at_block(
     )?)
 }
 
+pub async fn block_hash(
+    l2_node_provider: &ReqwestProvider,
+    block_number: u64,
+) -> anyhow::Result<FixedBytes<32>> {
+    let block: serde_json::Value = l2_node_provider
+        .client()
+        .request(
+            "eth_getBlockByNumber",
+            (format!("0x{:x}", block_number), false),
+        )
+        .await
+        .context(format!("eth_getBlockByNumber {block_number}"))?;
+    debug!("block_hash {:?}", &block);
+    Ok(FixedBytes::<32>::from_str(
+        block["hash"].as_str().expect("Failed to parse block hash"),
+    )?)
+}
+
 pub async fn derive_expected_journal<T: Transport + Clone, P: Provider<T, N>, N: Network>(
     game_contract: &FaultProofGameInstance<T, P, N>,
-    is_fault_proof: bool,
 ) -> anyhow::Result<Vec<u8>> {
-    // todo: revise
     let l1_head = game_contract.l1Head().call().await?.l1Head_.0;
     let parent_contract_address = game_contract.parentGame().call().await?.parentGame_;
     let parent_contract =
@@ -131,14 +147,17 @@ pub async fn derive_expected_journal<T: Transport + Clone, P: Provider<T, N>, N:
         .to::<u64>()
         .to_be_bytes();
     let config_hash = game_contract.configHash().call().await?.configHash_.0;
-    let is_fault_proof = [is_fault_proof as u8];
     Ok([
         l1_head.as_slice(),
         l2_output_root.as_slice(),
         l2_claim.as_slice(),
         l2_claim_block.as_slice(),
         config_hash.as_slice(),
-        is_fault_proof.as_slice(),
     ]
     .concat())
+}
+
+pub fn hash_to_fe(mut hash: B256) -> B256 {
+    hash.0[0] &= u8::MAX >> 2;
+    hash
 }

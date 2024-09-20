@@ -14,7 +14,7 @@
 
 use crate::blob_provider::BlobProvider;
 use crate::proposal::Proposal;
-use crate::{output_at_block, FAULT_PROOF_GAME_TYPE};
+use crate::{hash_to_fe, output_at_block, FAULT_PROOF_GAME_TYPE};
 use alloy::consensus::{Blob, BlobTransactionSidecar, EnvKzgSettings};
 use alloy::network::{EthereumWallet, Network};
 use alloy::primitives::{Address, Bytes, U256};
@@ -23,7 +23,6 @@ use alloy::signers::local::LocalSigner;
 use alloy::sol_types::SolValue;
 use alloy::transports::Transport;
 use anyhow::{bail, Context};
-use c_kzg::KzgProof;
 use kailua_common::intermediate_outputs;
 use std::collections::{HashMap, HashSet};
 use std::process::exit;
@@ -57,7 +56,7 @@ pub struct ProposeArgs {
 }
 
 pub async fn propose(args: ProposeArgs) -> anyhow::Result<()> {
-    // initialize l2 connection
+    // initialize blockchain connections
     let op_node_provider =
         ProviderBuilder::new().on_http(args.op_node_address.as_str().try_into()?);
     let cl_node_provider = BlobProvider::new(args.l1_beacon_address.as_str()).await?;
@@ -229,9 +228,10 @@ pub async fn propose(args: ProposeArgs) -> anyhow::Result<()> {
             info!("Deciding proposal validity.");
             let local_output_root = output_at_block(&op_node_provider, output_block_number).await?;
             // Parent must be correct if FaultProofGame and the local output must match the proposed output
-            let game_correctness =
-                parent.map(|p| p.is_correct()).unwrap_or(true) && local_output_root == output_root;
-            info!("Game correctness: {game_correctness}");
+            let is_correct_parent = parent.map(|p| p.is_correct()).unwrap_or(true);
+            info!("Parent correctness: {is_correct_parent}");
+            let game_correctness = local_output_root == output_root;
+            info!("Main proposal correctness: {game_correctness}");
             // initialize correctness vector with game value at position 0
             let mut correct = vec![game_correctness];
             if let Some(parent) = parent {
@@ -242,11 +242,10 @@ pub async fn propose(args: ProposeArgs) -> anyhow::Result<()> {
                 let outputs = intermediate_outputs(blob_data, num_intermediate)?;
                 let mut bad_io = 0;
                 for i in 0..num_intermediate {
-                    let mut local_output =
+                    let local_output =
                         output_at_block(&op_node_provider, starting_output_number + i as u64)
                             .await?;
-                    local_output.0[0] = 0;
-                    let io_correct = local_output == outputs[i];
+                    let io_correct = hash_to_fe(local_output) == outputs[i];
                     correct.push(io_correct);
                     if !io_correct {
                         bad_io += 1;
@@ -254,6 +253,8 @@ pub async fn propose(args: ProposeArgs) -> anyhow::Result<()> {
                 }
                 if bad_io > 0 {
                     warn!("Found {bad_io} incorrect intermediate proposals.");
+                } else {
+                    info!("Intermediate proposals are correct.")
                 }
             }
             // update local tree view
@@ -270,6 +271,7 @@ pub async fn propose(args: ProposeArgs) -> anyhow::Result<()> {
                 proven: HashMap::new(),
                 resolved,
                 correct,
+                is_correct_parent,
             });
             let correct = proposal_tree[local_index].is_correct();
             info!("Read {correct} proposal at factory index {factory_index}");
@@ -278,6 +280,7 @@ pub async fn propose(args: ProposeArgs) -> anyhow::Result<()> {
                 .map(|idx| proposal_tree[idx].output_block_number)
                 .unwrap_or_default();
             if correct && output_block_number > canonical_tip_height {
+                info!("Updating canonical proposal chain tip to local index {local_index}.");
                 canonical_tip_index = Some(local_index);
             }
         }
@@ -344,6 +347,7 @@ pub async fn propose(args: ProposeArgs) -> anyhow::Result<()> {
                 resolve_game(proposal_contract).await?;
                 continue;
             }
+            // todo: fix logic below
             // Game is challenged, check proof status and resolve
             if proposal_contract.provenAt(0).call().await?._0 > 0 {
                 let proof_status = proposal_contract
@@ -393,9 +397,8 @@ pub async fn propose(args: ProposeArgs) -> anyhow::Result<()> {
         let mut intermediate_outputs = vec![];
         let first_io_number = canonical_tip.output_block_number + 1;
         for i in first_io_number..proposed_block_number {
-            let mut output = output_at_block(&op_node_provider, i).await?.0;
-            output[0] = 0;
-            intermediate_outputs.push(output);
+            let output = output_at_block(&op_node_provider, i).await?;
+            intermediate_outputs.push(hash_to_fe(output));
         }
         let io_bytes = intermediate_outputs.concat();
         // Encode as blob sidecar
@@ -404,8 +407,28 @@ pub async fn propose(args: ProposeArgs) -> anyhow::Result<()> {
         let settings = EnvKzgSettings::default();
         let commitment = c_kzg::KzgCommitment::blob_to_kzg_commitment(&c_kzg_blob, settings.get())
             .expect("Failed to convert blob to commitment");
-        let proof =
-            KzgProof::compute_blob_kzg_proof(&c_kzg_blob, &commitment.to_bytes(), settings.get())?;
+        let proof = c_kzg::KzgProof::compute_blob_kzg_proof(
+            &c_kzg_blob,
+            &commitment.to_bytes(),
+            settings.get(),
+        )?;
+
+        // let z = c_kzg::Bytes32::new([0u8; 32]);
+        // let (proof, value) = c_kzg::KzgProof::compute_kzg_proof(
+        //     &c_kzg_blob,
+        //     &z,
+        //     settings.get()
+        // )?;
+        // let data = [
+        //     alloy::eips::eip4844::kzg_to_versioned_hash(commitment.as_slice()).as_slice(),
+        //     z.as_slice(),
+        //     value.as_slice(),
+        //     commitment.as_slice(),
+        //     proof.as_slice()
+        // ].concat();
+        // info!("input: {}", hex::encode(&data));
+        // exit(0);
+
         let sidecar = BlobTransactionSidecar::new(
             vec![blob],
             vec![commitment.to_bytes().into_inner().into()],

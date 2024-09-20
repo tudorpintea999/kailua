@@ -12,20 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::blob_provider::BlobProvider;
 use crate::channel::DuplexChannel;
 use crate::propose::Proposal;
-use crate::{derive_expected_journal, output_at_block, FAULT_PROOF_GAME_TYPE};
+use crate::{block_hash, derive_expected_journal, output_at_block, FAULT_PROOF_GAME_TYPE};
 use alloy::network::EthereumWallet;
 use alloy::primitives::{Address, FixedBytes, U256};
 use alloy::providers::{Provider, ProviderBuilder};
 use alloy::signers::local::LocalSigner;
 use anyhow::{bail, Context};
 use kailua_client::fpvm_proof_file_name;
+use kailua_common::intermediate_outputs;
 use kailua_contracts::IDisputeGameFactory::gameAtIndexReturn;
 use kailua_contracts::{FaultProofGame, IAnchorStateRegistry, IDisputeGameFactory};
 use kailua_host::fetch_rollup_config;
 use risc0_zkvm::{InnerReceipt, MaybePruned, Receipt};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::process::exit;
 use std::str::FromStr;
@@ -213,11 +215,13 @@ pub async fn handle_proposals(
     mut channel: DuplexChannel<Message>,
     args: ValidateArgs,
 ) -> anyhow::Result<()> {
-    // connect to l2 cl node
+    // initialize blockchain connections
     let op_node_provider =
         ProviderBuilder::new().on_http(args.op_node_address.as_str().try_into()?);
     let l2_node_provider =
         ProviderBuilder::new().on_http(args.l2_node_address.as_str().try_into()?);
+    let cl_node_provider = BlobProvider::new(args.l1_beacon_address.as_str()).await?;
+
     // initialize validator wallet
     info!("Initializing validator wallet.");
     let validator_signer = LocalSigner::from_str(&args.validator_key)?;
@@ -264,12 +268,6 @@ pub async fn handle_proposals(
         exit(1);
     }
     // load constants
-    let _max_proposal_span: u64 = fault_proof_game_implementation
-        .maxBlockCount()
-        .call()
-        .await?
-        .maxBlockCount_
-        .to();
     let bond_value = dispute_game_factory
         .initBonds(FAULT_PROOF_GAME_TYPE)
         .call()
@@ -282,7 +280,10 @@ pub async fn handle_proposals(
     let mut search_start_index = 0;
     // Run the validator loop
     loop {
+        // Wait for new data on every iteration
+        sleep(Duration::from_secs(1)).await;
         // validate latest games
+        // todo: preform validations based on l1_head
         let game_count: u64 = dispute_game_factory
             .gameCount()
             .call()
@@ -293,7 +294,7 @@ pub async fn handle_proposals(
             let gameAtIndexReturn {
                 gameType_: game_type,
                 proxy_: game_address,
-                ..
+                timestamp_: created_at,
             } = dispute_game_factory
                 .gameAtIndex(U256::from(factory_index))
                 .call()
@@ -306,84 +307,177 @@ pub async fn handle_proposals(
             info!("Processing proposal at factory index {factory_index}");
             // Retrieve basic data
             let game_contract = FaultProofGame::new(game_address, dispute_game_factory.provider());
-            let output_root = game_contract.rootClaim().call().await?.rootClaim_;
-            let output_block_number = game_contract.l2BlockNumber().call().await?.l2BlockNumber_;
-            let resolved = game_contract.resolvedAt().call().await?._0 > 0;
+            let output_root = game_contract
+                .rootClaim()
+                .call()
+                .await
+                .context("rootClaim")?
+                .rootClaim_;
+            let output_block_number: u64 = game_contract
+                .l2BlockNumber()
+                .call()
+                .await
+                .context("l2BlockNumber")?
+                .l2BlockNumber_
+                .to();
+            // Instantiate sub-claim trackers
+            let mut challenged = HashSet::new();
+            // let mut proven = HashMap::new();
+            let mut resolved = HashSet::new();
+            // let resolved = game_contract.resolvedAt().call().await?._0 > 0;
             let extra_data = game_contract.extraData().call().await?.extraData_;
             let local_index = proposal_tree.len();
             // Retrieve game/setup data
-            let (parent_local_index, mut challenged, proven) = match extra_data.len() {
-                0x10 => {
+            let (parent_local_index, blob) = match extra_data.len() {
+                0x30 => {
+                    info!("Retrieving basic FaultProofGame proposal data");
                     // FaultProofGame instance
+                    // check if game was resolved
+                    if game_contract.resolvedAt().call().await.context("resolvedAt")?._0 > 0 {
+                        resolved.insert(0);
+                    }
+                    // check if parent validity was challenged
+                    if game_contract.challengedAt(0).call().await.context("challengedAt(0)")?._0 > 0 {
+                        challenged.insert(0);
+                    }
                     let parent_factory_index = game_contract
                         .parentGameIndex()
                         .call()
-                        .await?
+                        .await
+                        .context("parentGameIndex")?
                         .parentGameIndex_;
                     let Some(parent_local_index) = proposal_index.get(&parent_factory_index) else {
                         error!("SKIPPED: Could not find parent local index for game {game_address} at factory index {factory_index}.");
                         continue;
                     };
-                    let challenged = game_contract.challengedAt().call().await?._0 > 0;
-                    let proven = game_contract.provenAt().call().await?._0 > 0;
-                    (*parent_local_index, challenged, proven)
+                    let blob_hash = game_contract.proposalBlobHash().call().await.context("proposalBlobHash")?.blobHash_;
+                    let blob = cl_node_provider.get_blob(
+                        created_at,
+                        blob_hash
+                    ).await.context(format!("get_blob {created_at}/{blob_hash}"))?;
+                    (*parent_local_index, Some(blob))
                 }
                 0x20 => {
+                    info!("Retrieving basic FaultProofSetup proposal data");
                     // FaultProofSetup instance
-                    (local_index, false, false)
+                    (local_index, None)
                 }
-                _ => bail!("Unexpected extra data length from game {game_address} at factory index {factory_index}")
+                len => bail!("Unexpected extra-data length {len} from game {game_address} at factory index {factory_index}")
+            };
+            // Get pointer to parent
+            let parent = if parent_local_index != local_index {
+                Some(&proposal_tree[parent_local_index])
+            } else {
+                None
             };
             // Decide correctness according to op-node
-            let local_output_root =
-                output_at_block(&op_node_provider, output_block_number.to()).await?;
-            let correct = if local_output_root != output_root {
-                // op-node disagrees, so this must be invalid
-                warn!("Encountered an incorrect proposal {output_root} for block {output_block_number}! Expected {local_output_root}.");
-                false
-            } else if parent_local_index != local_index {
-                // FaultProofGame can only be valid if parent is valid
-                proposal_tree[parent_local_index].correct
-            } else {
-                // FaultProofSetup is self evident if op-node agrees
-                true
-            };
-            // challenge any unchallenged bad proposals
-            if !correct && !challenged {
-                // Issue challenge against incorrect unchallenged proposals
-                info!("Challenging bad proposal.");
-                game_contract
-                    .challenge()
-                    .value(bond_value / U256::from(2))
-                    .send()
-                    .await
-                    .context("challenge (send)")?
-                    .get_receipt()
-                    .await
-                    .context("challenge (get_receipt)")?;
-                challenged = true;
+            info!("Deciding proposal validity.");
+            let local_output_root = output_at_block(&op_node_provider, output_block_number).await?;
+            // Parent must be correct if FaultProofGame and the local output must match the proposed output
+            let is_correct_parent = parent.map(|p| p.is_correct()).unwrap_or(true);
+            info!("Parent correctness: {is_correct_parent}");
+            let game_correctness = is_correct_parent && local_output_root == output_root;
+            info!("Main proposal correctness: {game_correctness}");
+            // initialize correctness vector with game value at position 0
+            let mut correct = vec![game_correctness];
+            if let Some(parent) = parent {
+                // Calculate intermediate correctness values for FaultProofGame
+                let blob_data = blob.as_ref().expect("Missing blob data.");
+                let starting_output_number = parent.output_block_number + 1;
+                let num_intermediate = (output_block_number - starting_output_number) as usize;
+                let outputs = intermediate_outputs(blob_data, num_intermediate)?;
+                let mut bad_io = 0;
+                for i in 0..num_intermediate {
+                    let mut local_output =
+                        output_at_block(&op_node_provider, starting_output_number + i as u64)
+                            .await?;
+                    local_output.0[0] = 0;
+                    let io_correct = local_output == outputs[i];
+                    correct.push(io_correct);
+                    if !io_correct {
+                        bad_io += 1;
+                    }
+                }
+                if bad_io > 0 {
+                    warn!("Found {bad_io} incorrect intermediate proposals.");
+                } else {
+                    info!("Intermediate proposals are correct.")
+                }
             }
             // update local tree view
+            info!("Storing proposal in memory.");
             proposal_index.insert(factory_index, local_index);
-            info!("Validated {correct} proposal at factory index {factory_index}");
-            let output_block_number = output_block_number.to();
             proposal_tree.push(Proposal {
                 factory_index,
                 game_address,
                 parent_local_index,
+                intermediate_output_blob: blob,
                 output_root,
                 output_block_number,
                 challenged,
-                proven,
+                proven: HashMap::new(),
                 resolved,
                 correct,
+                is_correct_parent,
             });
-            // enqueue proving for any bad proposals challenged by this validator
-            if !resolved
-                && challenged
-                && !proven
-                && game_contract.challenger().call().await?._0 == validator_address
-            {
+            // Validate
+            let local_proposal = &mut proposal_tree[local_index];
+            let correct = local_proposal.is_correct();
+            info!("Read {correct} proposal at factory index {factory_index}");
+            if correct {
+                continue;
+            }
+            // Issue possible challenge
+            let challenged_position = if !is_correct_parent {
+                // challenge based on expected parent resolution in favor of challenger
+                0u32
+            } else {
+                // an output must be challenged and proven incorrect
+                local_proposal
+                    .correct
+                    .iter()
+                    .skip(1)
+                    .position(|v| !v)
+                    .map(|p| p + 1)
+                    .unwrap_or(local_proposal.correct.len())
+            };
+            // query for on-chain challenge status
+            if game_contract.challengedAt(challenged_position)
+                .call()
+                .await
+                .context(&format!("challengedAt({challenged_position})"))?
+                ._0 > 0 {
+                local_proposal.challenged.insert(challenged_position);
+            }
+            // issue challenge if needed
+            if !local_proposal.is_output_challenged(challenged_position) {
+                info!("Issuing challenge against position {challenged_position}.");
+                game_contract
+                    .challenge(challenged_position)
+                    .value(bond_value / U256::from(2))
+                    .send()
+                    .await
+                    .context(&format!("challenge({challenged_position}) (send)"))?
+                    .get_receipt()
+                    .await
+                    .context(&format!("challenge({challenged_position}) (get_receipt)"))?;
+            }
+            // check challenger
+            if game_contract.challenger(challenged_position).call().await?._0 != validator_address {
+                info!("{correct} proposal at factory index {factory_index} was challenged by another validator.");
+                continue;
+            }
+            // query for on-chain proof status
+            let proof_status = game_contract.provenAt(challenged_position)
+                .call()
+                .await
+                .context(&format!("provenAt({challenged_position})"))?
+                ._0;
+            if proof_status > 0 {
+                local_proposal.proven.insert(challenged_position, proof_status == 2);
+            }
+            // if the challenged output is unproven, enqueue a proving task
+            if challenged_position != 0 && local_proposal.is_output_proven(challenged_position) {
                 // Read additional data for Kona invocation
                 info!("Requesting proof for local index {local_index}.");
                 let l1_head = game_contract
@@ -393,55 +487,19 @@ pub async fn handle_proposals(
                     .context("l1Head")?
                     .l1Head_;
                 debug!("l1_head {:?}", &l1_head);
-                let l2_head_number: u64 = game_contract
+                let l2_head_number = game_contract
                     .startingBlockNumber()
                     .call()
                     .await
                     .context("startingBlockNumber")?
                     .startingBlockNumber_
-                    .to();
+                    .to::<u64>() + challenged_position as u64 - 1;
                 debug!("l2_head_number {:?}", &l2_head_number);
-                let l2_head_block: serde_json::Value = l2_node_provider
-                    .client()
-                    .request(
-                        "eth_getBlockByNumber",
-                        (format!("0x{:x}", l2_head_number), false),
-                    )
-                    .await
-                    .context(format!("eth_getBlockByNumber {l2_head_number}"))?;
-                debug!("l2_head_block {:?}", &l2_head_block);
-                let l2_head = FixedBytes::<32>::from_str(
-                    l2_head_block["hash"]
-                        .as_str()
-                        .expect("Failed to parse block hash"),
-                )?;
+                let l2_head = block_hash(&l2_node_provider, l2_head_number).await.context("block_hash")?;
                 debug!("l2_head {:?}", &l2_head);
-                let l2_output_root = game_contract
-                    .startingRootHash()
-                    .call()
-                    .await?
-                    .startingRootHash_;
-                let local_output_root = output_at_block(&op_node_provider, l2_head_number).await?;
-                // We can only resolve this challenged game once the bad parent is resolved, so we skip proving.
-                if l2_output_root != local_output_root {
-                    warn!("Skipping proving for challenged local index {local_index} with bad parent output.");
-                    let parent = &proposal_tree[parent_local_index];
-                    if parent.challenged {
-                        info!(
-                            "{} parent of local index {local_index} is already challenged.",
-                            parent.correct
-                        );
-                    } else {
-                        error!(
-                            "{} parent of local index {local_index} is NOT challenged!",
-                            parent.correct
-                        );
-                    }
-                    if parent.correct {
-                        error!("Parent {parent_local_index} of {local_index} is correct!");
-                    }
-                    continue;
-                }
+                let l2_output_root = output_at_block(&op_node_provider, l2_head_number).await.context("output_at_block")?;
+                let l2_block_number = l2_head_number + 1;
+                let l2_claim = output_at_block(&op_node_provider, l2_block_number).await.context("output_at_block")?;
                 // Message proving task
                 channel
                     .sender
@@ -450,14 +508,16 @@ pub async fn handle_proposals(
                         l1_head,
                         l2_head,
                         l2_output_root,
-                        l2_block_number: output_block_number,
-                        l2_claim: output_root,
+                        l2_block_number,
+                        l2_claim,
                     })
                     .await?;
             }
+            // todo: validity proving
+            info!("Validated {correct} proposal at factory index {factory_index}.");
         }
         search_start_index = game_count;
-        // publish computed proofs
+        // publish computed proofs and resolve games
         while !channel.receiver.is_empty() {
             let Message::Proof(local_index, receipt) = channel
                 .receiver
@@ -538,8 +598,5 @@ pub async fn handle_proposals(
                 warn!("Skipping proof submission for already proven game at local index {local_index}.");
             }
         }
-
-        // Wait for new data
-        sleep(Duration::from_secs(1)).await;
     }
 }

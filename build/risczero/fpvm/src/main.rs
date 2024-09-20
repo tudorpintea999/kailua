@@ -20,6 +20,7 @@ use kona_client::l1::OracleBlobProvider;
 use kona_client::BootInfo;
 use risc0_zkvm::guest::env;
 use std::sync::Arc;
+use kona_primitives::alloy_primitives::B256;
 
 fn main() {
     let oracle = Arc::new(CachingRISCZeroOracle::new(ORACLE_LRU_SIZE));
@@ -29,14 +30,19 @@ fn main() {
             .expect("Failed to load BootInfo")
     });
     let beacon = RISCZeroBlobProvider::new(OracleBlobProvider::new(oracle.clone()));
-    // Attempt to recompute the output hash at the target block number using the kona client
+    // Attempt to recompute the output hash at the target block number using kona
     let real_output_hash =
         run_client(oracle, Arc::new(boot.clone()), beacon).expect("Failed to compute output hash.");
-    // True iff l1 data is sufficient to recompute the same output hash
-    let is_valid = real_output_hash
-        .map(|computed_output| computed_output == boot.l2_claim)
-        .unwrap_or_default();
     // Write the proof journal
-    let proof_journal = ProofJournal::from(boot);
-    env::commit_slice(&proof_journal.encode_packed(!is_valid));
+    let mut proof_journal = ProofJournal::from(boot.clone());
+    if let Some(computed_output) = real_output_hash {
+        // With sufficient data, the input l2_claim must be true
+        if computed_output != boot.l2_claim {
+            panic!("Invalid l2 claim.");
+        }
+    } else {
+        // We use the zero claim hash to denote that the data as of l1 head is insufficient
+        proof_journal.l2_claim = B256::ZERO;
+    }
+    env::commit_slice(&proof_journal.encode_packed());
 }

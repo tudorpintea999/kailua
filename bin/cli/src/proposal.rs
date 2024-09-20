@@ -28,11 +28,16 @@ pub struct Proposal {
     pub proven: HashMap<u32, bool>,
     pub resolved: HashSet<u32>,
     pub correct: Vec<bool>,
+    pub is_correct_parent: bool,
 }
 
 impl Proposal {
     pub fn is_correct(&self) -> bool {
-        self.correct.iter().all(|&x| x)
+        self.is_correct_parent && self.correct.iter().all(|&x| x)
+    }
+
+    pub fn is_challenged(&self) -> bool {
+        !self.challenged.is_empty()
     }
 
     pub fn is_game_resolved(&self) -> bool {

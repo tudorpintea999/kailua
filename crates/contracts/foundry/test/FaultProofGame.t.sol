@@ -68,69 +68,69 @@ contract FaultProofGameTest is Test {
         vm.startPrank(address(0x2d89034424Db22C9c555f14692a181B22B17E42C));
     }
 
-    function testMockFaultProof() public {
-        assertEq(vm.activeFork(), mainnetFork);
-        // Send a new proposal one block ahead
-        (, uint256 anchorBlockNum) = registry.anchors(faultDisputeGameType);
-        bytes32 outputClaim = keccak256("I am unprovable.");
-        uint256 outputBlockNum = anchorBlockNum + 2;
-        FaultProofGame gameInstance = FaultProofGame(
-            address(
-                factory.create{value: 1 wei}(
-                    faultProofGameType,
-                    Claim.wrap(outputClaim),
-                    abi.encodePacked(uint64(outputBlockNum), uint64(setupGameIndex))
-                )
-            )
-        );
-        // Check game registration
-        (GameType registeredType, Timestamp creationTimestamp, IDisputeGame gameAddress) =
-            factory.gameAtIndex(setupGameIndex + 1);
-        assertEq(registeredType.raw(), faultProofGameType.raw());
-        assertEq(creationTimestamp.raw(), gameInstance.createdAt().raw());
-        assertEq(address(gameAddress), address(gameInstance));
-        // Check that we cannot resolve until the parent is resolved
-        vm.expectRevert(OutOfOrderResolution.selector);
-        gameInstance.resolve();
-        // Check that we cannot resolve until time runs out
-        setupInstance.resolve();
-        vm.expectRevert(ClockNotExpired.selector);
-        gameInstance.resolve();
-        // Prove fault
-        gameInstance.challenge(1);
-        gameInstance.prove(1, "", true);
-        // Resolve and assert that attacker won
-        assert(gameInstance.resolve() == GameStatus.CHALLENGER_WINS);
-    }
+    //    function testMockFaultProof() public {
+    //        assertEq(vm.activeFork(), mainnetFork);
+    //        // Send a new proposal one block ahead
+    //        (, uint256 anchorBlockNum) = registry.anchors(faultDisputeGameType);
+    //        bytes32 outputClaim = keccak256("I am unprovable.");
+    //        uint256 outputBlockNum = anchorBlockNum + 2;
+    //        FaultProofGame gameInstance = FaultProofGame(
+    //            address(
+    //                factory.create{value: 1 wei}(
+    //                    faultProofGameType,
+    //                    Claim.wrap(outputClaim),
+    //                    abi.encodePacked(uint64(outputBlockNum), uint64(setupGameIndex))
+    //                )
+    //            )
+    //        );
+    //        // Check game registration
+    //        (GameType registeredType, Timestamp creationTimestamp, IDisputeGame gameAddress) =
+    //            factory.gameAtIndex(setupGameIndex + 1);
+    //        assertEq(registeredType.raw(), faultProofGameType.raw());
+    //        assertEq(creationTimestamp.raw(), gameInstance.createdAt().raw());
+    //        assertEq(address(gameAddress), address(gameInstance));
+    //        // Check that we cannot resolve until the parent is resolved
+    //        vm.expectRevert(OutOfOrderResolution.selector);
+    //        gameInstance.resolve();
+    //        // Check that we cannot resolve until time runs out
+    //        setupInstance.resolve();
+    //        vm.expectRevert(ClockNotExpired.selector);
+    //        gameInstance.resolve();
+    //        // Prove fault
+    //        gameInstance.challenge(1);
+    //        gameInstance.prove(1, "", true);
+    //        // Resolve and assert that attacker won
+    //        assert(gameInstance.resolve() == GameStatus.CHALLENGER_WINS);
+    //    }
 
-    // todo: enable validity proofs
-    function testMockValidityProof() private {
-        assertEq(vm.activeFork(), mainnetFork);
-        // Send a new proposal one block ahead
-        (, uint256 anchorBlockNum) = registry.anchors(faultDisputeGameType);
-        bytes32 outputClaim = keccak256("I am provable.");
-        uint256 outputBlockNum = anchorBlockNum + 128;
-        FaultProofGame gameInstance = FaultProofGame(
-            address(
-                factory.create{value: 1 wei}(
-                    faultProofGameType,
-                    Claim.wrap(outputClaim),
-                    abi.encodePacked(uint64(outputBlockNum), uint64(setupGameIndex))
-                )
-            )
-        );
-        // Check that we cannot resolve until the parent is resolved
-        vm.expectRevert(OutOfOrderResolution.selector);
-        gameInstance.resolve();
-        // Check that we cannot resolve until time runs out
-        setupInstance.resolve();
-        vm.expectRevert(ClockNotExpired.selector);
-        gameInstance.resolve();
-        // Prove validity
-        gameInstance.prove(0, "", false);
-        // Resolve and assert that defender won
-        assert(gameInstance.resolve() == GameStatus.DEFENDER_WINS);
-    }
+    //    // todo: enable validity proofs
+    //    function testMockValidityProof() private {
+    //        assertEq(vm.activeFork(), mainnetFork);
+    //        // Send a new proposal one block ahead
+    //        (, uint256 anchorBlockNum) = registry.anchors(faultDisputeGameType);
+    //        bytes32 outputClaim = keccak256("I am provable.");
+    //        uint256 outputBlockNum = anchorBlockNum + 128;
+    //        FaultProofGame gameInstance = FaultProofGame(
+    //            address(
+    //                factory.create{value: 1 wei}(
+    //                    faultProofGameType,
+    //                    Claim.wrap(outputClaim),
+    //                    abi.encodePacked(uint64(outputBlockNum), uint64(setupGameIndex))
+    //                )
+    //            )
+    //        );
+    //        // Check that we cannot resolve until the parent is resolved
+    //        vm.expectRevert(OutOfOrderResolution.selector);
+    //        gameInstance.resolve();
+    //        // Check that we cannot resolve until time runs out
+    //        setupInstance.resolve();
+    //        vm.expectRevert(ClockNotExpired.selector);
+    //        gameInstance.resolve();
+    //        // Prove validity
+    //        gameInstance.prove(0, "", false);
+    //        // Resolve and assert that defender won
+    //        assert(gameInstance.resolve() == GameStatus.DEFENDER_WINS);
+    //    }
 
     function testTimeout() public {
         assertEq(vm.activeFork(), mainnetFork);

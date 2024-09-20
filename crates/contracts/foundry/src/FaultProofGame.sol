@@ -65,6 +65,9 @@ contract FaultProofGame is Clone, IDisputeGame {
     // Immutable configuration
     // ------------------------------
 
+    /// @notice The point evaluation precompile
+    address internal constant KZG = address(0x0a);
+
     /// @notice The RISC Zero verifier contract
     IRiscZeroVerifier internal immutable RISC_ZERO_VERIFIER;
 
@@ -166,7 +169,7 @@ contract FaultProofGame is Clone, IDisputeGame {
         // - 0x02 CWIA bytes
         assembly {
             if iszero(eq(calldatasize(), 0x8A)) {
-            // Store the selector for `BadExtraData()` & revert
+                // Store the selector for `BadExtraData()` & revert
                 mstore(0x00, 0x9824bdab)
                 revert(0x1C, 0x04)
             }
@@ -174,12 +177,11 @@ contract FaultProofGame is Clone, IDisputeGame {
 
         // Do not allow the game to be initialized if the root claim corresponds to a block at or before the
         // starting block number.
-        uint256 parentBlockNumber = parentGame().l2BlockNumber();
-        if (l2BlockNumber() <= parentBlockNumber) revert UnexpectedRootClaim(rootClaim());
+        if (l2BlockNumber() <= startingBlockNumber()) revert UnexpectedRootClaim(rootClaim());
 
         // Do not initialize a game that covers more blocks than permitted
-        if (l2BlockNumber() - parentBlockNumber > MAX_BLOCK_COUNT) {
-            revert BlockCountExceeded(l2BlockNumber(), parentBlockNumber);
+        if (l2BlockNumber() - startingBlockNumber() > MAX_BLOCK_COUNT) {
+            revert BlockCountExceeded(l2BlockNumber(), startingBlockNumber());
         }
 
         // Validate the intermediate output blob hash
@@ -306,7 +308,7 @@ contract FaultProofGame is Clone, IDisputeGame {
         if (getRequiredBond() != msg.value) revert IncorrectBondAmount();
 
         // INVARIANT: The challenge must be against a proposed output.
-        if (outputNumber > l2BlockNumber() - parentGame().l2BlockNumber()) {
+        if (outputNumber > l2BlockNumber() - startingBlockNumber()) {
             revert NotProposed();
         }
 
@@ -323,7 +325,15 @@ contract FaultProofGame is Clone, IDisputeGame {
     }
 
     /// @notice Proves the integrity or faultiness of the output argued on by this contract
-    function prove(uint32 outputNumber, bytes calldata proof, bool isFaultProof) public {
+    function prove(
+        uint32 outputNumber,
+        bytes calldata encodedSeal,
+        bytes32 safeOutput,
+        bytes32 proposedOutput,
+        bytes32 computedOutput,
+        bytes calldata blobCommitment, // todo: make this part of init vars
+        bytes[] calldata kzgProofs
+    ) public {
         // INVARIANT: Proofs cannot be submitted unless the claim's game is currently in progress.
         if (gameStatus[outputNumber] != GameStatus.IN_PROGRESS) revert GameNotInProgress();
 
@@ -333,30 +343,62 @@ contract FaultProofGame is Clone, IDisputeGame {
         // INVARIANT: Can only submit proofs for challenged games
         if (challenger[outputNumber] == address(0x0)) revert UnchallengedGame();
 
+        // The latest finalized L2 output root.
+        if (outputNumber <= 1) {
+            // The safe output is the parent game's output when proving either
+            // 1. The entire game   (outputNumber 0) (todo)
+            // 2. The first output  (outputNumber 1)
+            require(safeOutput == parentGame().rootClaim().raw());
+        } else if (outputNumber > 1) {
+            // When challenging another output, we must prove that we are using the
+            // proposed intermediate output as the parent
+            bytes memory kzgCallData = abi.encodePacked(
+                proposalBlobHash().raw(),
+                uint256(outputNumber - 2), // blob is 0-indexed
+                ((safeOutput << 2) >> 2),
+                blobCommitment,
+                kzgProofs[0]
+            );
+            (bool success,) = KZG.call(kzgCallData);
+            require(success, "bad safeOutput kzg proof");
+        }
+
+        // The claimed output root
+        if (outputNumber == l2BlockNumber() - startingBlockNumber()) {
+            // The safe output is the entire game's output when proving
+            // the last output  (outputNumber N)
+            require(proposedOutput == rootClaim().raw());
+        } else {
+            bytes memory kzgCallData = abi.encodePacked(
+                proposalBlobHash().raw(),
+                uint256(outputNumber - 1), // blob is 0-indexed
+                ((proposedOutput << 2) >> 2),
+                blobCommitment,
+                kzgProofs[kzgProofs.length - 1]
+            );
+            (bool success,) = KZG.call(kzgCallData);
+            require(success, "bad proposedOutput kzg proof");
+        }
+        bool isFaultProof = proposedOutput != computedOutput;
+
         // Construct the expected journal
         bytes32 journalDigest = sha256(
             abi.encodePacked(
                 // The L1 head hash containing the safe L2 chain data that may reproduce the L2 head hash.
                 l1Head().raw(),
                 // The latest finalized L2 output root.
-                parentGame().rootClaim().raw(),
+                safeOutput,
                 // The L2 output root claim.
-                rootClaim().raw(),
+                computedOutput,
                 // The L2 claim block number.
-                uint64(l2BlockNumber()),
-                // The intermediate outputs blob hash
-                proposalBlobHash(),
-                // The challenged output index
-                outputNumber,
+                uint64(startingBlockNumber() + outputNumber),
                 // The configuration hash for this game
-                GAME_CONFIG_HASH,
-                // True iff the proof demonstrates fraud, false iff it demonstrates integrity
-                isFaultProof
+                GAME_CONFIG_HASH
             )
         );
 
         // reverts on failure
-        RISC_ZERO_VERIFIER.verify(proof, FPVM_IMAGE_ID, journalDigest);
+        RISC_ZERO_VERIFIER.verify(encodedSeal, FPVM_IMAGE_ID, journalDigest);
 
         // Update proof status
         emit Proven(outputNumber, proofStatus[outputNumber] = isFaultProof ? ProofStatus.FAULT : ProofStatus.INTEGRITY);
@@ -488,12 +530,12 @@ contract FaultProofGame is Clone, IDisputeGame {
     }
 
     /// @notice Only the starting block number of the game.
-    function startingBlockNumber() external view returns (uint256 startingBlockNumber_) {
+    function startingBlockNumber() public view returns (uint256 startingBlockNumber_) {
         startingBlockNumber_ = parentGame().l2BlockNumber();
     }
 
     /// @notice Only the starting output root of the game.
-    function startingRootHash() external view returns (Hash startingRootHash_) {
+    function startingRootHash() public view returns (Hash startingRootHash_) {
         startingRootHash_ = Hash.wrap(parentGame().rootClaim().raw());
     }
 

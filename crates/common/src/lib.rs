@@ -54,14 +54,13 @@ impl From<BootInfo> for ProofJournal {
 }
 
 impl ProofJournal {
-    pub fn encode_packed(&self, is_fault_proof: bool) -> Vec<u8> {
+    pub fn encode_packed(&self) -> Vec<u8> {
         [
             self.l1_head.as_slice(),
             self.l2_output_root.as_slice(),
             self.l2_claim.as_slice(),
             self.l2_claim_block.to_be_bytes().as_slice(),
             self.config_hash.as_slice(),
-            &[is_fault_proof as u8],
         ]
         .concat()
     }
