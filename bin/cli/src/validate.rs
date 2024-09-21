@@ -16,11 +16,12 @@ use crate::blob_provider::BlobProvider;
 use crate::channel::DuplexChannel;
 use crate::proposal::Proposal;
 use crate::{blob_fe_proof, block_hash, hash_to_fe, output_at_block, FAULT_PROOF_GAME_TYPE};
+use alloy::eips::eip4844::kzg_to_versioned_hash;
 use alloy::network::EthereumWallet;
 use alloy::primitives::{Address, Bytes, FixedBytes, U256};
-use alloy::providers::{ProviderBuilder};
+use alloy::providers::ProviderBuilder;
 use alloy::signers::local::LocalSigner;
-use anyhow::{bail, Context};
+use anyhow::{anyhow, bail, Context};
 use kailua_client::fpvm_proof_file_name;
 use kailua_common::{intermediate_outputs, ProofJournal};
 use kailua_contracts::IDisputeGameFactory::gameAtIndexReturn;
@@ -29,6 +30,7 @@ use kailua_host::fetch_rollup_config;
 use risc0_zkvm::{InnerReceipt, MaybePruned, Receipt};
 use std::collections::{HashMap, HashSet};
 use std::env;
+use std::path::Path;
 use std::process::exit;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -134,7 +136,7 @@ pub async fn handle_proofs(
             .receiver
             .recv()
             .await
-            .expect("proof receiver channel closed")
+            .ok_or(anyhow!("proof receiver channel closed"))?
         else {
             bail!("Unexpected message type.");
         };
@@ -205,6 +207,11 @@ pub async fn handle_proofs(
         }
         sleep(Duration::from_secs(1)).await;
         // Read receipt file
+        if !Path::new(&proof_file_name).exists() {
+            error!("Receipt file {proof_file_name} not found.");
+        } else {
+            info!("Found receipt file.");
+        }
         let mut receipt_file = File::open(proof_file_name.clone()).await?;
         info!("Opened receipt file {proof_file_name}.");
         let mut receipt_data = Vec::new();
@@ -225,6 +232,7 @@ pub async fn handle_proposals(
     args: ValidateArgs,
 ) -> anyhow::Result<()> {
     // initialize blockchain connections
+    info!("Initializing rpc connections.");
     let op_node_provider =
         ProviderBuilder::new().on_http(args.op_node_address.as_str().try_into()?);
     let l2_node_provider =
@@ -557,7 +565,7 @@ pub async fn handle_proposals(
                 .receiver
                 .recv()
                 .await
-                .expect("proposals receiver channel closed")
+                .ok_or(anyhow!("proposals receiver channel closed"))?
             else {
                 bail!("Unexpected message type.");
             };
@@ -570,10 +578,11 @@ pub async fn handle_proposals(
                 .intermediate_output_blob
                 .clone()
                 .expect("Missing blob data.");
-            let proposal_span = (proposal.output_block_number - proposal_parent.output_block_number) as u32;
+            let proposal_span =
+                (proposal.output_block_number - proposal_parent.output_block_number) as u32;
             let challenge_position =
                 (proof_journal.l2_claim_block - proposal_parent.output_block_number) as u32;
-            let io_hashes = intermediate_outputs(&io_blob, proposal_span as usize)?;
+            let io_hashes = intermediate_outputs(&io_blob, proposal_span as usize - 1)?;
             let challenged_output = io_hashes
                 .get(challenge_position as usize - 1)
                 .copied()
@@ -633,7 +642,38 @@ pub async fn handle_proposals(
                     proofs.push(Bytes::from(proof.to_vec()));
                 }
 
-                info!("Submitting proof {}.", hex::encode(&encoded_seal));
+                info!(
+                    "Submitting proof {} for position {challenge_position}.",
+                    hex::encode(&encoded_seal)
+                );
+                debug!("safeOutput: {}", proof_journal.l2_output_root);
+                debug!(
+                    "startingRootHash: {}",
+                    game_contract
+                        .startingRootHash()
+                        .call()
+                        .await?
+                        .startingRootHash_
+                );
+                debug!("proposedOutput: {}", challenged_output);
+                debug!(
+                    "rootClaim: {}",
+                    game_contract.rootClaim().call().await?.rootClaim_
+                );
+                debug!("computedOutput: {}", proof_journal.l2_claim);
+                debug!(
+                    "blobCommitment: {}",
+                    hex::encode(io_blob.kzg_commitment.as_slice())
+                );
+                debug!(
+                    "versionedHash: {}",
+                    kzg_to_versioned_hash(io_blob.kzg_commitment.as_slice())
+                );
+                debug!(
+                    "proposalBlobHash: {}",
+                    game_contract.proposalBlobHash().call().await?.blobHash_
+                );
+                debug!("proofs: {proofs:?}");
                 game_contract
                     .prove(
                         challenge_position,
@@ -650,7 +690,7 @@ pub async fn handle_proposals(
                     .get_receipt()
                     .await
                     .context("prove (get_receipt)")?;
-                info!("Resolving outout {challenge_position}.");
+                info!("Resolving output {challenge_position}.");
                 game_contract
                     .resolveClaim(challenge_position)
                     .send()
@@ -664,6 +704,7 @@ pub async fn handle_proposals(
             } else {
                 warn!("Skipping proof submission for already proven game at local index {local_index}.");
             }
+            // todo: only resolve unresolved games
         }
     }
 }

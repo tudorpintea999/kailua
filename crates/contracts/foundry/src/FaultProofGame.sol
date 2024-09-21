@@ -343,7 +343,7 @@ contract FaultProofGame is Clone, IDisputeGame {
             // The safe output is the parent game's output when proving either
             // 1. The entire game   (outputNumber 0) (todo)
             // 2. The first output  (outputNumber 1)
-            require(safeOutput == parentGame().rootClaim().raw());
+            require(safeOutput == startingRootHash().raw());
         } else if (outputNumber > 1) {
             // When challenging another output, we must prove that we are using the
             // proposed intermediate output as the parent

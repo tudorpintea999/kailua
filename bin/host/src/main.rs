@@ -16,8 +16,8 @@ use clap::Parser;
 use kailua_client::fpvm_proof_file_name;
 use kailua_host::{generate_rollup_config, KailuaHostCli};
 use kona_host::{init_tracing_subscriber, start_server_and_native_client};
+use std::path::Path;
 use tempfile::tempdir;
-use tokio::fs::File;
 use tracing::info;
 
 #[tokio::main(flavor = "multi_thread")]
@@ -28,8 +28,9 @@ async fn main() -> anyhow::Result<()> {
     // compute receipt if uncached
     let file_name =
         fpvm_proof_file_name(cfg.kona.l1_head, cfg.kona.l2_claim, cfg.kona.l2_output_root);
-    let file = File::open(file_name.clone()).await;
-    if file.is_err() {
+    if Path::new(&file_name).exists() {
+        info!("Proving skipped. Receipt file {file_name} already exists.");
+    } else {
         info!("Computing uncached receipt.");
         let tmp_dir = tempdir()?;
         generate_rollup_config(&mut cfg, &tmp_dir).await?;
@@ -37,9 +38,6 @@ async fn main() -> anyhow::Result<()> {
         start_server_and_native_client(cfg.kona.clone())
             .await
             .expect("Proving failure");
-    } else {
-        info!("Proving skipped. Receipt file {file_name} already exists.");
-        drop(file);
     }
 
     info!("Exiting host program.");

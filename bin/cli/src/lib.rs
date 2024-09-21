@@ -19,9 +19,9 @@ use alloy::providers::{Provider, ReqwestProvider};
 use alloy::transports::Transport;
 use anyhow::Context;
 // use kailua_contracts::FaultProofGame::FaultProofGameInstance;
+use alloy::consensus::{Blob, BlobTransactionSidecar};
 use kailua_contracts::Safe::SafeInstance;
 use std::str::FromStr;
-use alloy::consensus::{Blob, BlobTransactionSidecar};
 use tracing::debug;
 
 pub mod blob_provider;
@@ -148,15 +148,14 @@ pub fn blob_sidecar(blob: Blob) -> anyhow::Result<BlobTransactionSidecar> {
     ))
 }
 
-pub fn blob_fe_proof(blob: &Blob, index: usize) -> anyhow::Result<(c_kzg::Bytes48, c_kzg::Bytes32)> {
+pub fn blob_fe_proof(
+    blob: &Blob,
+    index: usize,
+) -> anyhow::Result<(c_kzg::Bytes48, c_kzg::Bytes32)> {
     let z = c_kzg::Bytes32::new(U256::from(index).to_be_bytes());
     let c_kzg_blob = c_kzg::Blob::from_bytes(blob.as_slice())?;
     let settings = alloy::consensus::EnvKzgSettings::default();
-    let (proof, value) = c_kzg::KzgProof::compute_kzg_proof(
-        &c_kzg_blob,
-        &z,
-        settings.get()
-    )?;
+    let (proof, value) = c_kzg::KzgProof::compute_kzg_proof(&c_kzg_blob, &z, settings.get())?;
     Ok((proof.to_bytes(), value))
 }
 
