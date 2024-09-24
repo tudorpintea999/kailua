@@ -28,33 +28,48 @@ enum ProofStatus {
     INTEGRITY
 }
 
+// 0x2c06a364
 /// @notice Thrown when a proof is submitted for an already proven game
 error AlreadyProven();
 
+// 0xa506d334
 /// @notice Thrown when a resolution is attempted for an unproven claim
 error NotProven();
 
+// 0x87ec6473
 /// @notice Thrown when a proving fault for an unchallenged game
 error UnchallengedGame();
 
+// 0xf1082a93
 /// @notice Thrown when a challenge is submitted against an already challenged game
 error AlreadyChallenged();
 
+// 0xf2a87d5e
 /// @notice Thrown when a challenge is submitted against an out of range output
 error NotProposed();
 
+// 0x1ebb374b
 /// @notice Thrown when a game is created with a parent instance from another game type
 error GameTypeMismatch(GameType parentType, GameType expectedType);
 
+// 0xe5f91edd
 /// @notice Thrown when a game is initialized for more blocks than the maximum allowed
 error BlockCountExceeded(uint256 l2BlockNumber, uint256 rootBlockNumber);
 
+// 0x1844c87b
 /// @notice Thrown when an incorrect blob hash is provided
 error BlobHashMismatch(bytes32 found, bytes32 expected);
 
-/// @notice Emitted when the game is proven.
-/// @param status The proven status of the game
+/// @notice Emitted when an output is challenged.
+/// @param outputIndex The index of the challenged output
+/// @param challenger The address of the challenge issuer
+event Challenged(uint32 indexed outputIndex, address indexed challenger);
+
+/// @notice Emitted when an output is proven.
+/// @param outputIndex The index of the challenged output
+/// @param status The proven status of the output
 event Proven(uint32 indexed outputIndex, ProofStatus indexed status);
+
 
 contract FaultProofGame is Clone, IDisputeGame {
     /// @notice Semantic version.
@@ -176,7 +191,7 @@ contract FaultProofGame is Clone, IDisputeGame {
         }
 
         // Do not allow the game to be initialized if the root claim corresponds to a block at or before the
-        // starting block number.
+        // starting block number. (0xf40239db)
         if (l2BlockNumber() <= startingBlockNumber()) revert UnexpectedRootClaim(rootClaim());
 
         // Do not initialize a game that covers more blocks than permitted
@@ -308,7 +323,7 @@ contract FaultProofGame is Clone, IDisputeGame {
         }
 
         // Set the output challenger address
-        challenger[outputNumber] = payable(msg.sender);
+        emit Challenged(outputNumber, challenger[outputNumber] = payable(msg.sender));
 
         // Set the output's challenge timestamp
         challengedAt[outputNumber] = Timestamp.wrap(uint64(block.timestamp));
@@ -347,6 +362,7 @@ contract FaultProofGame is Clone, IDisputeGame {
         } else if (outputNumber > 1) {
             // When challenging another output, we must prove that we are using the
             // proposed intermediate output as the parent
+            // todo: support empty output compression
             bytes memory kzgCallData = abi.encodePacked(
                 proposalBlobHash().raw(),
                 uint256(outputNumber - 2), // blob is 0-indexed

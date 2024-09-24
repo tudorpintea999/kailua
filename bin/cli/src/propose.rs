@@ -13,18 +13,16 @@
 // limitations under the License.
 
 use crate::blob_provider::BlobProvider;
-use crate::proposal::Proposal;
+use crate::proposal::ProposalDB;
 use crate::{hash_to_fe, output_at_block, FAULT_PROOF_GAME_TYPE};
 use alloy::consensus::{Blob, BlobTransactionSidecar};
 use alloy::network::{EthereumWallet, Network};
-use alloy::primitives::{Address, Bytes, U256};
+use alloy::primitives::{Address, Bytes};
 use alloy::providers::{Provider, ProviderBuilder};
 use alloy::signers::local::LocalSigner;
 use alloy::sol_types::SolValue;
 use alloy::transports::Transport;
-use anyhow::{bail, Context};
-use kailua_common::intermediate_outputs;
-use std::collections::{HashMap, HashSet};
+use anyhow::Context;
 use std::process::exit;
 use std::str::FromStr;
 use std::time::Duration;
@@ -123,188 +121,25 @@ pub async fn propose(args: ProposeArgs) -> anyhow::Result<()> {
         .bond_;
     // Initialize empty state
     info!("Initializing..");
-    let mut proposal_tree: Vec<Proposal> = vec![];
-    let mut proposal_index = HashMap::new();
-    let mut search_start_index = 0;
-    let mut canonical_tip_index: Option<usize> = None;
+    let mut proposal_db = ProposalDB::default();
     // Run the proposer loop
     loop {
         // Wait for new data on every iteration
         sleep(Duration::from_secs(1)).await;
         // fetch latest games
-        let game_count: u64 = dispute_game_factory
-            .gameCount()
-            .call()
-            .await?
-            .gameCount_
-            .to();
-        // Iterate over every new game and fetch its relevant values
-        for factory_index in search_start_index..game_count {
-            let kailua_contracts::IDisputeGameFactory::gameAtIndexReturn {
-                gameType_: game_type,
-                proxy_: game_address,
-                timestamp_: created_at,
-            } = dispute_game_factory
-                .gameAtIndex(U256::from(factory_index))
-                .call()
-                .await
-                .context(format!("gameAtIndex {factory_index}/{game_count}"))?;
-            // skip entries for other game types
-            if game_type != FAULT_PROOF_GAME_TYPE {
-                continue;
-            }
-            info!("Processing proposal at factory index {factory_index}");
-            // Retrieve basic data
-            let game_contract =
-                kailua_contracts::FaultProofGame::new(game_address, &proposer_provider);
-            let output_root = game_contract
-                .rootClaim()
-                .call()
-                .await
-                .context("rootClaim")?
-                .rootClaim_;
-            let output_block_number: u64 = game_contract
-                .l2BlockNumber()
-                .call()
-                .await
-                .context("l2BlockNumber")?
-                .l2BlockNumber_
-                .to();
-            // Instantiate sub-claim trackers
-            let mut challenged = HashSet::new();
-            // let mut proven = HashMap::new();
-            let mut resolved = HashSet::new();
-            let extra_data = game_contract
-                .extraData()
-                .call()
-                .await
-                .context("extraData")?
-                .extraData_;
-            let local_index = proposal_tree.len();
-            // Retrieve game/setup data
-            let (parent_local_index, blob) = match extra_data.len() {
-                0x30 => {
-                    info!("Retrieving basic FaultProofGame proposal data");
-                    // FaultProofGame instance
-                    // check if game was resolved
-                    if game_contract.resolvedAt().call().await.context("resolvedAt")?._0 > 0 {
-                        resolved.insert(0);
-                    }
-                    // check if parent validity was challenged
-                    if game_contract.challengedAt(0).call().await.context("challengedAt(0)")?._0 > 0 {
-                        challenged.insert(0);
-                    }
-                    let parent_factory_index = game_contract
-                        .parentGameIndex()
-                        .call()
-                        .await
-                        .context("parentGameIndex")?
-                        .parentGameIndex_;
-                    let Some(parent_local_index) = proposal_index.get(&parent_factory_index) else {
-                        error!("SKIPPED: Could not find parent local index for game {game_address} at factory index {factory_index}.");
-                        continue;
-                    };
-                    let blob_hash = game_contract.proposalBlobHash().call().await.context("proposalBlobHash")?.blobHash_;
-                    let blob = cl_node_provider.get_blob(
-                        created_at,
-                        blob_hash
-                    ).await.context(format!("get_blob {created_at}/{blob_hash}"))?;
-                    (*parent_local_index, Some(blob))
-                }
-                0x20 => {
-                    info!("Retrieving basic FaultProofSetup proposal data");
-                    // FaultProofSetup instance
-                    (local_index, None)
-                }
-                len => bail!("Unexpected extra-data length {len} from game {game_address} at factory index {factory_index}")
-            };
-            // Get pointer to parent
-            let parent = if parent_local_index != local_index {
-                Some(&proposal_tree[parent_local_index])
-            } else {
-                None
-            };
-            // Decide correctness according to op-node
-            info!("Deciding proposal validity.");
-            let local_output_root = output_at_block(&op_node_provider, output_block_number).await?;
-            // Parent must be correct if FaultProofGame and the local output must match the proposed output
-            let is_correct_parent = parent.map(|p| p.is_correct()).unwrap_or(true);
-            info!("Parent correctness: {is_correct_parent}");
-            let game_correctness = local_output_root == output_root;
-            info!("Main proposal correctness: {game_correctness}");
-            // initialize correctness vector with game value at position 0
-            let mut correct = vec![game_correctness];
-            if let Some(parent) = parent {
-                // Calculate intermediate correctness values for FaultProofGame
-                let blob_data = blob.as_ref().expect("Missing blob data.");
-                let starting_output_number = parent.output_block_number + 1;
-                let num_intermediate = (output_block_number - starting_output_number) as usize;
-                let outputs = intermediate_outputs(blob_data, num_intermediate)?;
-                let mut bad_io = 0;
-                for i in 0..num_intermediate {
-                    let local_output =
-                        output_at_block(&op_node_provider, starting_output_number + i as u64)
-                            .await?;
-                    let io_correct = hash_to_fe(local_output) == outputs[i];
-                    correct.push(io_correct);
-                    if !io_correct {
-                        bad_io += 1;
-                    }
-                }
-                if bad_io > 0 {
-                    warn!("Found {bad_io} incorrect intermediate proposals.");
-                } else {
-                    info!("Intermediate proposals are correct.")
-                }
-            }
-            // update local tree view
-            info!("Storing proposal in memory.");
-            proposal_index.insert(factory_index, local_index);
-            proposal_tree.push(Proposal {
-                factory_index,
-                game_address,
-                parent_local_index,
-                intermediate_output_blob: blob,
-                output_root,
-                output_block_number,
-                challenged,
-                proven: HashMap::new(),
-                resolved,
-                correct,
-                is_correct_parent,
-            });
-            let correct = proposal_tree[local_index].is_correct();
-            info!("Read {correct} proposal at factory index {factory_index}");
-            // Update canonical chain tip if this proposal yields a longer valid chain
-            let canonical_tip_height = canonical_tip_index
-                .map(|idx| proposal_tree[idx].output_block_number)
-                .unwrap_or_default();
-            if correct && output_block_number > canonical_tip_height {
-                info!("Updating canonical proposal chain tip to local index {local_index}.");
-                canonical_tip_index = Some(local_index);
-            }
-        }
-        search_start_index = game_count;
+        proposal_db
+            .load_proposals(&dispute_game_factory, &op_node_provider, &cl_node_provider)
+            .await
+            .context("load_proposals")?;
         // Maintain the canonical proposal chain
-        let Some(canonical_tip_index) = canonical_tip_index else {
+        let Some(canonical_tip_index) = proposal_db.canonical_tip_index else {
             warn!("No canonical proposal tip known!");
             continue;
         };
         // Stack unresolved ancestors
-        let mut unresolved_proposal_indices = vec![canonical_tip_index];
-        loop {
-            let local_index = *unresolved_proposal_indices.last().unwrap();
-            let proposal = &proposal_tree[local_index];
-            // break if we reach a resolved game or a setup game
-            if proposal.is_game_resolved() {
-                unresolved_proposal_indices.pop();
-                break;
-            } else if proposal.parent_local_index == local_index {
-                // this is an unresolved setup game, keep in stack
-                break;
-            }
-            unresolved_proposal_indices.push(proposal.parent_local_index);
-        }
+        let mut unresolved_proposal_indices = proposal_db
+            .unresolved_canonical_proposals(&proposer_provider)
+            .await?;
         // Resolve in reverse order
         if !unresolved_proposal_indices.is_empty() {
             info!(
@@ -313,58 +148,51 @@ pub async fn propose(args: ProposeArgs) -> anyhow::Result<()> {
             );
         }
         while let Some(local_index) = unresolved_proposal_indices.pop() {
-            let local_proposal = &mut proposal_tree[local_index];
-            let proposal_contract = kailua_contracts::FaultProofGame::new(
-                local_proposal.game_address,
-                &proposer_provider,
-            );
-            // Update on-chain resolution status
-            if proposal_contract.resolvedAt().call().await?._0 > 0 {
-                local_proposal.resolved.insert(0);
-            }
+            let local_proposal = &mut proposal_db.proposals[local_index];
+            let proposal_contract = local_proposal.game_contract(&proposer_provider);
+            // Skip resolved games
             if local_proposal.is_game_resolved() {
                 info!("Reached resolved ancestor proposal.");
                 continue;
             }
-            // Update on-chain challenged status
+
+            // Check for challenges
             if proposal_contract.challengedAt(0).call().await?._0 > 0 {
                 local_proposal.challenged.insert(0);
             }
-            if !local_proposal.is_game_challenged() {
-                // Check for timeout
-                let challenger_duration = proposal_contract
-                    .getChallengerDuration()
-                    .call()
-                    .await?
-                    .duration_;
-                if challenger_duration < max_clock_duration {
-                    info!(
-                        "Waiting for {} more seconds before resolution.",
-                        max_clock_duration - challenger_duration
-                    );
-                    break;
-                }
-                resolve_game(proposal_contract).await?;
-                continue;
+            local_proposal.unresolved_challenges = proposal_contract
+                .unresolvedClaimCount()
+                .call()
+                .await
+                .context(format!("unresolvedClaimCount local_index {local_index}"))?
+                ._0;
+            if local_proposal.has_unresolved_challenges() {
+                info!(
+                    "Waiting for {} challenges to be resolved.",
+                    local_proposal.unresolved_challenges
+                );
+                break;
             }
-            // todo: fix logic below
-            // Game is challenged, check proof status and resolve
-            if proposal_contract.provenAt(0).call().await?._0 > 0 {
-                let proof_status = proposal_contract
-                    .proofStatus(0)
-                    .call()
-                    .await
-                    .context("proofStatus()")?
-                    ._0;
-                local_proposal.proven.insert(0, proof_status == 2);
+
+            // Check for timeout
+            let challenger_duration = proposal_contract
+                .getChallengerDuration()
+                .call()
+                .await?
+                .duration_;
+            if challenger_duration < max_clock_duration {
+                info!(
+                    "Waiting for {} more seconds before resolution.",
+                    max_clock_duration - challenger_duration
+                );
+                break;
             }
-            if local_proposal.is_game_proven().unwrap_or_default() {
-                // resolve
-                resolve_game(proposal_contract).await?;
-            }
+
+            // resolve
+            resolve_game(proposal_contract).await?;
         }
         // Submit proposal to extend canonical chain
-        let canonical_tip = &proposal_tree[canonical_tip_index];
+        let canonical_tip = &proposal_db.proposals[canonical_tip_index];
         // Query op-node to get latest safe l2 head
         let sync_status: serde_json::Value = op_node_provider
             .client()

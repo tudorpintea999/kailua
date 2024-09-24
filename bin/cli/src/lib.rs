@@ -17,7 +17,7 @@ use alloy::network::{Network, TransactionBuilder};
 use alloy::primitives::{Address, FixedBytes, Uint, B256, U256};
 use alloy::providers::{Provider, ReqwestProvider};
 use alloy::transports::Transport;
-use anyhow::Context;
+use anyhow::{bail, Context};
 // use kailua_contracts::FaultProofGame::FaultProofGameInstance;
 use alloy::consensus::{Blob, BlobTransactionSidecar};
 use kailua_contracts::Safe::SafeInstance;
@@ -152,11 +152,53 @@ pub fn blob_fe_proof(
     blob: &Blob,
     index: usize,
 ) -> anyhow::Result<(c_kzg::Bytes48, c_kzg::Bytes32)> {
-    let z = c_kzg::Bytes32::new(U256::from(index).to_be_bytes());
+    let bytes = U256::from(index).to_be_bytes();
+    let z = c_kzg::Bytes32::new(bytes);
     let c_kzg_blob = c_kzg::Blob::from_bytes(blob.as_slice())?;
     let settings = alloy::consensus::EnvKzgSettings::default();
     let (proof, value) = c_kzg::KzgProof::compute_kzg_proof(&c_kzg_blob, &z, settings.get())?;
-    Ok((proof.to_bytes(), value))
+
+    let commitment = c_kzg::KzgCommitment::blob_to_kzg_commitment(&c_kzg_blob, settings.get())?;
+
+    let proof_bytes = proof.to_bytes();
+    if c_kzg::KzgProof::verify_kzg_proof(
+        &commitment.to_bytes(),
+        &z,
+        &value,
+        &proof_bytes,
+        settings.get()
+    )? {
+        Ok((proof_bytes, value))
+    } else {
+        bail!("Generated invalid kzg proof.")
+    }
+
+}
+
+pub fn blob_fe_proof2(
+    blob: &Blob,
+    z_bytes: [u8; 32],
+) -> anyhow::Result<(c_kzg::Bytes48, c_kzg::Bytes32)> {
+    let z = c_kzg::Bytes32::new(z_bytes);
+    let c_kzg_blob = c_kzg::Blob::from_bytes(blob.as_slice())?;
+    let settings = alloy::consensus::EnvKzgSettings::default();
+    let (proof, value) = c_kzg::KzgProof::compute_kzg_proof(&c_kzg_blob, &z, settings.get())?;
+
+    let commitment = c_kzg::KzgCommitment::blob_to_kzg_commitment(&c_kzg_blob, settings.get())?;
+
+    let proof_bytes = proof.to_bytes();
+    if c_kzg::KzgProof::verify_kzg_proof(
+        &commitment.to_bytes(),
+        &z,
+        &value,
+        &proof_bytes,
+        settings.get()
+    )? {
+        Ok((proof_bytes, value))
+    } else {
+        bail!("Generated invalid kzg proof.")
+    }
+
 }
 
 // pub async fn derive_expected_journal<T: Transport + Clone, P: Provider<T, N>, N: Network>(

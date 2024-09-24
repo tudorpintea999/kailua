@@ -4553,10 +4553,12 @@ abstract contract ContextUpgradeable is Initializable {
 //                `DisputeGameFactory` Errors                 //
 ////////////////////////////////////////////////////////////////
 
+// 0x031c6de4
 /// @notice Thrown when a dispute game is attempted to be created with an unsupported game type.
 /// @param gameType The unsupported game type.
 error NoImplementation(GameType gameType);
 
+// 0x014f6fe5
 /// @notice Thrown when a dispute game that already exists is attempted to be created.
 /// @param uuid The UUID of the dispute game that already exists.
 error GameAlreadyExists(Hash uuid);
