@@ -289,7 +289,7 @@ impl ProposalDB {
         self.latest_factory_index = game_count;
         Ok(self.proposals.len() - initial_proposals)
     }
-    
+
     pub async fn unresolved_canonical_proposals<
         T: Transport + Clone,
         P: Provider<T, N>,

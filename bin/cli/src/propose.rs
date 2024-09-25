@@ -15,7 +15,7 @@
 use crate::blob_provider::BlobProvider;
 use crate::proposal::ProposalDB;
 use crate::{hash_to_fe, output_at_block, FAULT_PROOF_GAME_TYPE};
-use alloy::consensus::{Blob, BlobTransactionSidecar};
+use alloy::consensus::Blob;
 use alloy::network::{EthereumWallet, Network};
 use alloy::primitives::{Address, Bytes};
 use alloy::providers::{Provider, ProviderBuilder};
@@ -231,37 +231,8 @@ pub async fn propose(args: ProposeArgs) -> anyhow::Result<()> {
         let io_bytes = intermediate_outputs.concat();
         // Encode as blob sidecar
         let blob = Blob::right_padding_from(io_bytes.as_slice());
-        let c_kzg_blob = c_kzg::Blob::from_bytes(blob.as_slice())?;
-        let settings = alloy::consensus::EnvKzgSettings::default();
-        let commitment = c_kzg::KzgCommitment::blob_to_kzg_commitment(&c_kzg_blob, settings.get())
-            .expect("Failed to convert blob to commitment");
-        let proof = c_kzg::KzgProof::compute_blob_kzg_proof(
-            &c_kzg_blob,
-            &commitment.to_bytes(),
-            settings.get(),
-        )?;
+        let sidecar = crate::blob_sidecar(blob)?;
 
-        // let z = c_kzg::Bytes32::new([0u8; 32]);
-        // let (proof, value) = c_kzg::KzgProof::compute_kzg_proof(
-        //     &c_kzg_blob,
-        //     &z,
-        //     settings.get()
-        // )?;
-        // let data = [
-        //     alloy::eips::eip4844::kzg_to_versioned_hash(commitment.as_slice()).as_slice(),
-        //     z.as_slice(),
-        //     value.as_slice(),
-        //     commitment.as_slice(),
-        //     proof.as_slice()
-        // ].concat();
-        // info!("input: {}", hex::encode(&data));
-        // exit(0);
-
-        let sidecar = BlobTransactionSidecar::new(
-            vec![blob],
-            vec![commitment.to_bytes().into_inner().into()],
-            vec![proof.to_bytes().into_inner().into()],
-        );
         // compute extra data with block number, parent factory index, and blob hash
         let extra_data = [
             proposed_block_number.abi_encode_packed(),

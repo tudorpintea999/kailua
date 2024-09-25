@@ -41,6 +41,15 @@ devnet-upgrade verbosity="-vv" l1_rpc="http://127.0.0.1:8545" l1_beacon_rpc="htt
       --guardian-key {{guardian}} \
       {{verbosity}}
 
+devnet-reset:
+  just devnet-down
+
+  just devnet-clean
+
+  just devnet-up
+
+  just devnet-upgrade
+
 devnet-propose verbosity="-vv" l1_rpc="http://127.0.0.1:8545" l1_beacon_rpc="http://127.0.0.1:5052" rollup_node_rpc="http://127.0.0.1:7545" registry="0xd801426328C609fCDe6E3B7a5623C27e8F607832" deployer="0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba":
   ./target/debug/kailua-cli propose \
       --registry-contract {{registry}} \

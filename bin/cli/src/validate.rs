@@ -15,10 +15,10 @@
 use crate::blob_provider::BlobProvider;
 use crate::channel::DuplexChannel;
 use crate::proposal::{Proposal, ProposalDB};
-use crate::{blob_fe_proof, blob_fe_proof2, block_hash, hash_to_fe, output_at_block, FAULT_PROOF_GAME_TYPE};
+use crate::{blob_fe_proof, block_hash, hash_to_fe, output_at_block, FAULT_PROOF_GAME_TYPE};
 use alloy::eips::eip4844::kzg_to_versioned_hash;
 use alloy::network::{EthereumWallet, Network};
-use alloy::primitives::{Address, Bytes, FixedBytes, B256, U256};
+use alloy::primitives::{Address, Bytes, FixedBytes, U256};
 use alloy::providers::{Provider, ProviderBuilder, ReqwestProvider};
 use alloy::signers::local::LocalSigner;
 use alloy::transports::Transport;
@@ -34,7 +34,6 @@ use std::path::Path;
 use std::process::exit;
 use std::str::FromStr;
 use std::time::Duration;
-use alloy::hex::FromHex;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
@@ -476,28 +475,11 @@ pub async fn handle_proposals(
                 (proof_journal.l2_claim_block - proposal_parent.output_block_number) as u32;
             let io_hashes = intermediate_outputs(&io_blob, proposal_span as usize - 1)?;
 
-            // sanity check (todo: fix this...)
-            let test_vectors = [
-                hex::decode("01")?,
-                hex::decode("73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000000")?,
-                hex::decode("8d51ccce760304d0ec030002760300000001000000000000")?,
-            ];
-            for i in 0..test_vectors.len() {
-                let z_bytes = B256::left_padding_from(&test_vectors[i]).0;
-                let (_, value) = blob_fe_proof2(&io_blob.blob, z_bytes)?;
-                assert_eq!(value.to_vec(), io_hashes[i].to_vec());
-                info!("Test {i} passed!");
-            }
-            exit(0);
-
-
-
             let challenged_output = io_hashes
                 .get(challenge_position as usize - 1)
                 .copied()
                 .unwrap_or(proposal.output_root);
-            let is_fault_proof =
-                hash_to_fe(proof_journal.l2_claim) != challenged_output;
+            let is_fault_proof = hash_to_fe(proof_journal.l2_claim) != challenged_output;
             let proof_label = if is_fault_proof { "fault" } else { "validity" };
             info!(
                 "Utilizing {proof_label} proof in game at {}",
@@ -536,19 +518,34 @@ pub async fn handle_proposals(
                 let mut proofs = vec![];
 
                 if challenge_position > 1 {
-                    let (proof, value) = blob_fe_proof(&io_blob.blob, challenge_position as usize - 2)?;
+                    let (proof, value) =
+                        blob_fe_proof(&io_blob.blob, challenge_position as usize - 2)?;
                     proofs.push(Bytes::from(proof.to_vec()));
-                    info!("Generating kzg proof for parent output at {}.", challenge_position - 2);
+                    info!(
+                        "Generating kzg proof for parent output at {}.",
+                        challenge_position - 2
+                    );
                     if value.to_vec() != proof_journal.l2_output_root.to_vec() {
-                        error!("Invalid kzg proof {}/{}.", hex::encode(value.to_vec()), proof_journal.l2_output_root);
+                        error!(
+                            "Invalid kzg proof {}/{}.",
+                            hex::encode(value.to_vec()),
+                            proof_journal.l2_output_root
+                        );
                     }
                 }
                 if challenge_position < proposal_span {
-                    let (proof, value) = blob_fe_proof(&io_blob.blob, challenge_position as usize - 1)?;
+                    let (proof, value) =
+                        blob_fe_proof(&io_blob.blob, challenge_position as usize - 1)?;
                     proofs.push(Bytes::from(proof.to_vec()));
-                    info!("Generating kzg proof for proposed output at {}.", challenge_position - 1);
+                    info!(
+                        "Generating kzg proof for proposed output at {}.",
+                        challenge_position - 1
+                    );
                     if value.to_vec() != challenged_output.to_vec() {
-                        error!("Invalid kzg proof {}/{challenged_output}.", hex::encode(value.to_vec()));
+                        error!(
+                            "Invalid kzg proof {}/{challenged_output}.",
+                            hex::encode(value.to_vec())
+                        );
                     }
                 }
 

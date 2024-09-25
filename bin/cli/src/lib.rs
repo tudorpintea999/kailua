@@ -18,8 +18,10 @@ use alloy::primitives::{Address, FixedBytes, Uint, B256, U256};
 use alloy::providers::{Provider, ReqwestProvider};
 use alloy::transports::Transport;
 use anyhow::{bail, Context};
+use std::ops::{Div, Sub};
 // use kailua_contracts::FaultProofGame::FaultProofGameInstance;
 use alloy::consensus::{Blob, BlobTransactionSidecar};
+use alloy::eips::eip4844::{BLS_MODULUS, FIELD_ELEMENTS_PER_BLOB};
 use kailua_contracts::Safe::SafeInstance;
 use std::str::FromStr;
 use tracing::debug;
@@ -148,11 +150,34 @@ pub fn blob_sidecar(blob: Blob) -> anyhow::Result<BlobTransactionSidecar> {
     ))
 }
 
+pub fn reverse_bits(index: u128, order_po2: u32) -> u128 {
+    index.reverse_bits() >> (u128::BITS - order_po2)
+}
+
+pub const PRIMITIVE_ROOT_OF_UNITY: U256 = U256::from_limbs([7, 0, 0, 0]);
+// primitive_root = 7
+// bls_mod = 52435875175126190479447740508185965837690552500527637822603658699938581184513
+// pow(primitive_root, (bls_mod - 1) // (2 ** 12), bls_mod)
+// 39033254847818212395286706435128746857159659164139250548781411570340225835782
+pub const FE_ORDER_PO2: u32 = 12;
+
+pub fn root_of_unity(index: usize) -> U256 {
+    let primitive_root_exponent = BLS_MODULUS
+        .sub(U256::from(1))
+        .div(U256::from(FIELD_ELEMENTS_PER_BLOB));
+    let root = PRIMITIVE_ROOT_OF_UNITY.pow_mod(primitive_root_exponent, BLS_MODULUS);
+
+    let root_exponent = reverse_bits(index as u128, FE_ORDER_PO2);
+    let result = root.pow_mod(U256::from(root_exponent), BLS_MODULUS);
+    // tracing::info!("{index}: Raising {PRIMITIVE_ROOT_OF_UNITY} to {root_exponent}: {result}");
+    result
+}
+
 pub fn blob_fe_proof(
     blob: &Blob,
     index: usize,
 ) -> anyhow::Result<(c_kzg::Bytes48, c_kzg::Bytes32)> {
-    let bytes = U256::from(index).to_be_bytes();
+    let bytes = root_of_unity(index).to_be_bytes();
     let z = c_kzg::Bytes32::new(bytes);
     let c_kzg_blob = c_kzg::Blob::from_bytes(blob.as_slice())?;
     let settings = alloy::consensus::EnvKzgSettings::default();
@@ -166,39 +191,12 @@ pub fn blob_fe_proof(
         &z,
         &value,
         &proof_bytes,
-        settings.get()
+        settings.get(),
     )? {
         Ok((proof_bytes, value))
     } else {
         bail!("Generated invalid kzg proof.")
     }
-
-}
-
-pub fn blob_fe_proof2(
-    blob: &Blob,
-    z_bytes: [u8; 32],
-) -> anyhow::Result<(c_kzg::Bytes48, c_kzg::Bytes32)> {
-    let z = c_kzg::Bytes32::new(z_bytes);
-    let c_kzg_blob = c_kzg::Blob::from_bytes(blob.as_slice())?;
-    let settings = alloy::consensus::EnvKzgSettings::default();
-    let (proof, value) = c_kzg::KzgProof::compute_kzg_proof(&c_kzg_blob, &z, settings.get())?;
-
-    let commitment = c_kzg::KzgCommitment::blob_to_kzg_commitment(&c_kzg_blob, settings.get())?;
-
-    let proof_bytes = proof.to_bytes();
-    if c_kzg::KzgProof::verify_kzg_proof(
-        &commitment.to_bytes(),
-        &z,
-        &value,
-        &proof_bytes,
-        settings.get()
-    )? {
-        Ok((proof_bytes, value))
-    } else {
-        bail!("Generated invalid kzg proof.")
-    }
-
 }
 
 // pub async fn derive_expected_journal<T: Transport + Clone, P: Provider<T, N>, N: Network>(

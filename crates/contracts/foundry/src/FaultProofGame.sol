@@ -70,7 +70,6 @@ event Challenged(uint32 indexed outputIndex, address indexed challenger);
 /// @param status The proven status of the output
 event Proven(uint32 indexed outputIndex, ProofStatus indexed status);
 
-
 contract FaultProofGame is Clone, IDisputeGame {
     /// @notice Semantic version.
     /// @custom:semver 0.1.0
@@ -80,8 +79,22 @@ contract FaultProofGame is Clone, IDisputeGame {
     // Immutable configuration
     // ------------------------------
 
+    /// @notice The modular exponentiation precompile
+    address internal constant MOD_EXP = address(0x05);
+
     /// @notice The point evaluation precompile
     address internal constant KZG = address(0x0a);
+
+    /// @notice Scalar field modulus of BLS12-381
+    uint256 internal constant BLS_MODULUS =
+        52435875175126190479447740508185965837690552500527637822603658699938581184513;
+
+    /// @notice The base root of unity for indexing blob field elements
+    uint256 internal constant ROOT_OF_UNITY =
+        39033254847818212395286706435128746857159659164139250548781411570340225835782;
+
+    /// @notice The po2 for the number of field elements in a single blob
+    uint256 internal constant FIELD_ELEMENTS_PER_BLOB_PO2 = 12;
 
     /// @notice The RISC Zero verifier contract
     IRiscZeroVerifier internal immutable RISC_ZERO_VERIFIER;
@@ -363,14 +376,15 @@ contract FaultProofGame is Clone, IDisputeGame {
             // When challenging another output, we must prove that we are using the
             // proposed intermediate output as the parent
             // todo: support empty output compression
-            bytes memory kzgCallData = abi.encodePacked(
-                proposalBlobHash().raw(),
-                uint256(outputNumber - 2), // blob is 0-indexed
-                ((safeOutput << 2) >> 2),
-                blobCommitment,
-                kzgProofs[0]
-            );
-            (bool success,) = KZG.call(kzgCallData);
+            bool success = verify_kzg_blob_proof(outputNumber - 2, safeOutput, blobCommitment, kzgProofs[0]);
+            //            bytes memory kzgCallData = abi.encodePacked(
+            //                proposalBlobHash().raw(),
+            //                uint256(outputNumber - 2), // blob is 0-indexed
+            //                ((safeOutput << 2) >> 2),
+            //                blobCommitment,
+            //                kzgProofs[0]
+            //            );
+            //            (bool success,) = KZG.call(kzgCallData);
             require(success, "bad safeOutput kzg proof");
         }
 
@@ -380,14 +394,16 @@ contract FaultProofGame is Clone, IDisputeGame {
             // the last output  (outputNumber N)
             require(proposedOutput == rootClaim().raw());
         } else {
-            bytes memory kzgCallData = abi.encodePacked(
-                proposalBlobHash().raw(),
-                uint256(outputNumber - 1), // blob is 0-indexed
-                ((proposedOutput << 2) >> 2),
-                blobCommitment,
-                kzgProofs[kzgProofs.length - 1]
-            );
-            (bool success,) = KZG.call(kzgCallData);
+            bool success =
+                verify_kzg_blob_proof(outputNumber - 1, proposedOutput, blobCommitment, kzgProofs[kzgProofs.length - 1]);
+            //            bytes memory kzgCallData = abi.encodePacked(
+            //                proposalBlobHash().raw(),
+            //                uint256(outputNumber - 1), // blob is 0-indexed
+            //                ((proposedOutput << 2) >> 2),
+            //                blobCommitment,
+            //                kzgProofs[kzgProofs.length - 1]
+            //            );
+            //            (bool success,) = KZG.call(kzgCallData);
             require(success, "bad proposedOutput kzg proof");
         }
         bool isFaultProof = proposedOutput != computedOutput;
@@ -563,5 +579,30 @@ contract FaultProofGame is Clone, IDisputeGame {
     function pay(uint256 amount, address recipient) internal {
         (bool success,) = recipient.call{value: amount}(hex"");
         if (!success) revert BondTransferFailed();
+    }
+
+    function verify_kzg_blob_proof(uint32 index, bytes32 value, bytes calldata blobCommitment, bytes calldata proof)
+        internal
+        returns (bool success)
+    {
+        bytes memory modExpData =
+            abi.encodePacked(uint256(32), uint256(32), uint256(32), ROOT_OF_UNITY, reverse_bits(index), BLS_MODULUS);
+        (, bytes memory rootOfUnity) = MOD_EXP.call(modExpData);
+
+        bytes memory kzgCallData = abi.encodePacked(
+            proposalBlobHash().raw(),
+            uint256(bytes32(rootOfUnity)),
+            ((value << 2) >> 2),
+            blobCommitment, // todo: get this from initialization
+            proof
+        );
+        (success,) = KZG.call(kzgCallData);
+    }
+
+    function reverse_bits(uint32 index) internal returns (uint256 result) {
+        for (uint256 i = 0; i < FIELD_ELEMENTS_PER_BLOB_PO2; i++) {
+            result |= ((1 << i) & index) >> i;
+            result <<= 1;
+        }
     }
 }

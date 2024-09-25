@@ -13,9 +13,10 @@
 // limitations under the License.
 
 use crate::propose::ProposeArgs;
-use crate::FAULT_PROOF_GAME_TYPE;
+use crate::{hash_to_fe, output_at_block, FAULT_PROOF_GAME_TYPE};
+use alloy::consensus::Blob;
 use alloy::network::EthereumWallet;
-use alloy::primitives::{Address, Bytes, FixedBytes, U256};
+use alloy::primitives::{Address, Bytes, B256, U256};
 use alloy::providers::ProviderBuilder;
 use alloy::signers::local::LocalSigner;
 use alloy::sol_types::SolValue;
@@ -23,7 +24,6 @@ use anyhow::Context;
 use kailua_contracts::FaultProofGame::FaultProofGameInstance;
 use kailua_contracts::{IAnchorStateRegistry, IDisputeGameFactory};
 use std::str::FromStr;
-use std::sync::Arc;
 use tracing::info;
 
 #[derive(clap::Args, Debug, Clone)]
@@ -37,23 +37,38 @@ pub struct FaultArgs {
 }
 
 pub async fn fault(args: FaultArgs) -> anyhow::Result<()> {
+    let op_node_provider =
+        ProviderBuilder::new().on_http(args.propose_args.op_node_address.as_str().try_into()?);
     // init l1 stuff
     let tester_signer = LocalSigner::from_str(&args.propose_args.proposer_key)?;
     let tester_wallet = EthereumWallet::from(tester_signer);
-    let tester_provider = Arc::new(
-        ProviderBuilder::new()
-            .with_recommended_fillers()
-            .wallet(tester_wallet)
-            .on_http(args.propose_args.l1_node_address.as_str().try_into()?),
-    );
+    let tester_provider = ProviderBuilder::new()
+        .with_recommended_fillers()
+        .wallet(tester_wallet)
+        .on_http(args.propose_args.l1_node_address.as_str().try_into()?);
     let anchor_state_registry = IAnchorStateRegistry::new(
         Address::from_str(&args.propose_args.registry_contract)?,
-        tester_provider.clone(),
+        &tester_provider,
     );
     let dispute_game_factory = IDisputeGameFactory::new(
         anchor_state_registry.disputeGameFactory().call().await?._0,
-        tester_provider.clone(),
+        &tester_provider,
     );
+    let fault_proof_game_implementation = kailua_contracts::FaultProofGame::new(
+        dispute_game_factory
+            .gameImpls(FAULT_PROOF_GAME_TYPE)
+            .call()
+            .await?
+            .impl_,
+        &tester_provider,
+    );
+    // load constants
+    let max_proposal_span: u64 = fault_proof_game_implementation
+        .maxBlockCount()
+        .call()
+        .await?
+        .maxBlockCount_
+        .to();
     let bond_value = dispute_game_factory
         .initBonds(FAULT_PROOF_GAME_TYPE)
         .call()
@@ -77,8 +92,7 @@ pub async fn fault(args: FaultArgs) -> anyhow::Result<()> {
         .call()
         .await?
         .proxy_;
-    let first_game_contract =
-        FaultProofGameInstance::new(first_game_address, tester_provider.clone());
+    let first_game_contract = FaultProofGameInstance::new(first_game_address, &tester_provider);
     let anchor_block_number: u64 = first_game_contract
         .l2BlockNumber()
         .call()
@@ -86,16 +100,37 @@ pub async fn fault(args: FaultArgs) -> anyhow::Result<()> {
         .l2BlockNumber_
         .to();
     let first_game_index: u64 = first_game_data.index.to();
-    // submit a fuzzy proposal
-    let proposed_root_claim = dispute_game_factory
-        .gameCount()
-        .call()
-        .await?
-        .gameCount_
-        .to_be_bytes();
-    let proposed_block_number = anchor_block_number + args.fault_block_count;
-    // fuzzy io
-    let blob = alloy::eips::eip4844::Blob::right_padding_from(b"prove me wrong");
+    // Prepare faulty proposal
+    let faulty_block_number = anchor_block_number + args.fault_block_count;
+    let faulty_root_claim = B256::from(
+        dispute_game_factory
+            .gameCount()
+            .call()
+            .await?
+            .gameCount_
+            .to_be_bytes(),
+    );
+    // Prepare remainder of proposal
+    let proposed_block_number = anchor_block_number + max_proposal_span;
+    let proposed_output_root = if proposed_block_number == faulty_block_number {
+        faulty_root_claim
+    } else {
+        output_at_block(&op_node_provider, proposed_block_number).await?
+    };
+    // Prepare intermediate outputs
+    let mut intermediate_outputs = vec![];
+    let first_io_number = anchor_block_number + 1;
+    for i in first_io_number..proposed_block_number {
+        let output = if i == faulty_block_number {
+            faulty_root_claim
+        } else {
+            output_at_block(&op_node_provider, i).await?
+        };
+        intermediate_outputs.push(hash_to_fe(output));
+    }
+    let io_bytes = intermediate_outputs.concat();
+    // Encode as blob sidecar
+    let blob = Blob::right_padding_from(io_bytes.as_slice());
     let sidecar = crate::blob_sidecar(blob)?;
 
     let extra_data = [
@@ -110,7 +145,7 @@ pub async fn fault(args: FaultArgs) -> anyhow::Result<()> {
     dispute_game_factory
         .create(
             FAULT_PROOF_GAME_TYPE,
-            FixedBytes::<32>::from(proposed_root_claim),
+            proposed_output_root,
             Bytes::from(extra_data),
         )
         .value(bond_value)
