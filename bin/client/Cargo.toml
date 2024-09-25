@@ -4,11 +4,14 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+alloy = { workspace = true, features = ["full", "kzg"] }
+alloy-rpc-types-beacon.workspace = true
 alloy-primitives.workspace = true
 anyhow.workspace = true
 async-trait.workspace = true
 bincode.workspace = true
 bytemuck.workspace = true
+c-kzg.workspace = true
 clap.workspace = true
 lru.workspace = true
 

@@ -77,7 +77,7 @@ pub async fn prove_zkvm_client() -> anyhow::Result<Receipt> {
             .io_callback(FPVM_GET_BLOB, |request| {
                 let data = request.to_vec();
                 let request: BlobFetchRequest = from_slice(&data)?;
-                let res = Handle::current()
+                let blob = Handle::current()
                     .block_on(async {
                         let mut provider = blob_provider.lock().await;
                         provider
@@ -85,7 +85,19 @@ pub async fn prove_zkvm_client() -> anyhow::Result<Receipt> {
                             .await
                     })
                     .unwrap();
-                Ok(res[0].to_vec().into())
+                // todo: move to function
+                let c_kzg_blob = c_kzg::Blob::from_bytes(blob[0].as_slice())?;
+                let settings = alloy::consensus::EnvKzgSettings::default();
+                let commitment =
+                    c_kzg::KzgCommitment::blob_to_kzg_commitment(&c_kzg_blob, settings.get())
+                        .expect("Failed to convert blob to commitment");
+                let proof = c_kzg::KzgProof::compute_blob_kzg_proof(
+                    &c_kzg_blob,
+                    &commitment.to_bytes(),
+                    settings.get(),
+                )?;
+                let result = [blob[0].as_slice(), commitment.as_slice(), proof.as_slice()].concat();
+                Ok(result.into())
             })
             .build()?;
         let prover = default_prover();

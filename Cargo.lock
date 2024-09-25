@@ -3052,11 +3052,14 @@ dependencies = [
 name = "kailua-client"
 version = "0.1.0"
 dependencies = [
+ "alloy",
  "alloy-primitives 0.8.3",
+ "alloy-rpc-types-beacon",
  "anyhow",
  "async-trait",
  "bincode",
  "bytemuck",
+ "c-kzg",
  "clap",
  "kailua-build",
  "kailua-common",

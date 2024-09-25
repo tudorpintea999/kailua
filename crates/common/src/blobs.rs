@@ -14,10 +14,12 @@
 
 extern crate alloc;
 
+use alloy_eips::eip4844::{kzg_to_versioned_hash, BYTES_PER_BLOB, BYTES_PER_COMMITMENT};
+use anyhow::anyhow;
 // use anyhow::anyhow;
 use crate::oracle::{send_slice_recv_vec, BlobFetchRequest, FPVM_GET_BLOB};
 use async_trait::async_trait;
-use c_kzg::KzgSettings;
+use c_kzg::{Bytes48, KzgSettings};
 use kona_derive::errors::BlobProviderError;
 use kona_derive::traits::BlobProvider;
 use kona_primitives::{Blob, BlockInfo, IndexedBlobHash};
@@ -29,6 +31,11 @@ use risc0_zkvm::serde::to_vec;
 #[cfg_attr(target_os = "zkvm", c_kzg::risc0_c_kzg_alloc_mod)]
 pub mod c_kzg_alloc {
     // proc macro inserts calloc/malloc/free definitions here
+}
+
+#[no_mangle]
+pub extern "C" fn __assert_func(_file: *const i8, _line: i32, _func: *const i8, _expr: *const i8) {
+    panic!("c_kzg assertion failure.");
 }
 
 // todo: use settings from alloy eips
@@ -59,6 +66,8 @@ impl BlobProvider for RISCZeroBlobProvider {
             block_ref.hash
         ));
         let mut blobs = Vec::with_capacity(blob_hashes.len());
+        let mut commitments = Vec::with_capacity(blob_hashes.len());
+        let mut proofs = Vec::with_capacity(blob_hashes.len());
         for blob_hash in blob_hashes {
             let request = to_vec(&BlobFetchRequest {
                 block_ref: block_ref.clone(),
@@ -66,12 +75,48 @@ impl BlobProvider for RISCZeroBlobProvider {
             })
             .expect("Failed to serialize blob request");
             let blob_vec: Vec<u8> = send_slice_recv_vec(FPVM_GET_BLOB, request.as_slice());
-            blobs.push(Blob::from_slice(&blob_vec));
+            blobs.push(
+                c_kzg::Blob::from_bytes(&blob_vec[..BYTES_PER_BLOB])
+                    .expect("Failed to deserialize blob"),
+            );
+
+            commitments.push(
+                Bytes48::from_bytes(
+                    &blob_vec[BYTES_PER_BLOB..BYTES_PER_BLOB + BYTES_PER_COMMITMENT],
+                )
+                .expect("Failed to deserialize kzg commitment"),
+            );
+
+            proofs.push(
+                Bytes48::from_bytes(&blob_vec[BYTES_PER_BLOB + BYTES_PER_COMMITMENT..])
+                    .expect("Failed to deserialize kzg proof"),
+            );
         }
         // let blobs = self.blob_provider.get_blobs(block_ref, blob_hashes).await?;
         risc0_zkvm::guest::env::log(&format!("Loaded {} blobs from oracle.", blobs.len()));
-        assert_eq!(blob_hashes.len(), blobs.len());
-        risc0_zkvm::guest::env::log("(INSECURE) Validation skipped.");
+        if blob_hashes.len() != blobs.len() {
+            return Err(BlobProviderError::Custom(anyhow!("Missing blobs.")));
+        }
+        // verify commitments
+        // todo: amortize over entire execution
+        c_kzg::KzgProof::verify_blob_kzg_proof_batch(
+            blobs.as_slice(),
+            commitments.as_slice(),
+            proofs.as_slice(),
+            &KZG.1,
+        )
+        .expect("Failed to batch validate kzg proofs");
+        risc0_zkvm::guest::env::log("Blob commitments validated.");
+        // Validate commitment hashes
+        for (commitment, blob_hash) in core::iter::zip(&commitments, blob_hashes) {
+            let versioned_hash = kzg_to_versioned_hash(commitment.as_slice());
+            if versioned_hash != blob_hash.hash {
+                return Err(BlobProviderError::Custom(anyhow!("Invalid blob hash.")));
+            }
+        }
+        risc0_zkvm::guest::env::log("Blob hashes validated.");
+
+        // risc0_zkvm::guest::env::log("(INSECURE) Validation skipped.");
         // for (blob, indexed_blob_hash) in core::iter::zip(&blobs, blob_hashes) {
         //     let blob = c_kzg::Blob::from_bytes(blob.as_slice())
         //         .expect("Failed to construct c_kzg blob from bytes");
@@ -84,6 +129,6 @@ impl BlobProvider for RISCZeroBlobProvider {
         //     }
         //     risc0_zkvm::guest::env::log("Blob validated");
         // }
-        Ok(blobs)
+        Ok(blobs.into_iter().map(|b| Blob::from(*b)).collect())
     }
 }
