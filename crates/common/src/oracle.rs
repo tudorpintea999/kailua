@@ -17,11 +17,14 @@ use anyhow::bail;
 use async_trait::async_trait;
 use bytemuck::Pod;
 use kona_preimage::{HintWriterClient, PreimageKey, PreimageKeyType, PreimageOracleClient};
+use kona_primitives::IndexedBlobHash;
 use lru::LruCache;
+use op_alloy_protocol::BlockInfo;
 use risc0_zkvm::guest::env::syscall;
 use risc0_zkvm::sha::{Impl as SHA2, Sha256};
 use risc0_zkvm_platform::syscall::{Return, SyscallName};
 use risc0_zkvm_platform::{align_up, declare_syscall, WORD_SIZE};
+use serde::{Deserialize, Serialize};
 use spin::Mutex;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
@@ -29,6 +32,7 @@ use std::sync::Arc;
 // Declare system calls for IO
 declare_syscall!(pub FPVM_GET_PREIMAGE);
 declare_syscall!(pub FPVM_WRITE_HINT);
+declare_syscall!(pub FPVM_GET_BLOB);
 
 /// Exchanges slices of plain old data with the host, receiving the response in a vector.
 pub fn send_slice_recv_vec<T: Pod, U: Pod>(syscall_name: SyscallName, to_host: &[T]) -> Vec<U> {
@@ -172,4 +176,10 @@ impl HintWriterClient for RISCZeroOracle {
 
         Ok(())
     }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct BlobFetchRequest {
+    pub block_ref: BlockInfo,
+    pub blob_hash: IndexedBlobHash,
 }

@@ -1803,6 +1803,7 @@ dependencies = [
  "lazy_static",
  "lru",
  "op-alloy-consensus",
+ "op-alloy-protocol",
  "revm 10.0.0",
  "risc0-zkvm",
  "risc0-zkvm-platform",
@@ -2276,7 +2277,9 @@ dependencies = [
  "alloy-eips",
  "alloy-primitives 0.8.0",
  "alloy-rlp",
+ "alloy-serde",
  "derive_more 1.0.0",
+ "serde",
  "spin",
 ]
 
@@ -2286,7 +2289,9 @@ version = "0.2.8"
 source = "git+https://github.com/alloy-rs/op-alloy?rev=0d8ef62#0d8ef62ae942c85d260e64f08d10e0a429c00289"
 dependencies = [
  "alloy-primitives 0.8.0",
+ "alloy-serde",
  "hashbrown 0.14.5",
+ "serde",
  "superchain-primitives",
 ]
 

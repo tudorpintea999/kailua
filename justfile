@@ -48,7 +48,6 @@ devnet-reset:
 
   just devnet-up
 
-  just devnet-upgrade
 
 devnet-propose verbosity="-vv" l1_rpc="http://127.0.0.1:8545" l1_beacon_rpc="http://127.0.0.1:5052" rollup_node_rpc="http://127.0.0.1:7545" registry="0xd801426328C609fCDe6E3B7a5623C27e8F607832" deployer="0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba":
   ./target/debug/kailua-cli propose \
@@ -78,6 +77,9 @@ devnet-validate verbosity="-vv" l1_rpc="http://127.0.0.1:8545" l1_beacon_rpc="ht
       --op-node-address {{rollup_node_rpc}} \
       --validator-key {{validator}} \
       {{verbosity}}
+
+devnet-prove block_number verbosity="-vv" data=".localtestdata":
+  RISC0_DEV_MODE=1 just prove {{block_number}} http://localhost:8545 http://localhost:5052 http://localhost:9545 http://localhost:7545 {{data}} {{verbosity}}
 
 
 # Run the client program natively with the host program attached.

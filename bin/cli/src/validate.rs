@@ -525,7 +525,7 @@ pub async fn handle_proposals(
                         "Generating kzg proof for parent output at {}.",
                         challenge_position - 2
                     );
-                    if value.to_vec() != proof_journal.l2_output_root.to_vec() {
+                    if value.to_vec() != hash_to_fe(proof_journal.l2_output_root).to_vec() {
                         error!(
                             "Invalid kzg proof {}/{}.",
                             hex::encode(value.to_vec()),
@@ -541,7 +541,7 @@ pub async fn handle_proposals(
                         "Generating kzg proof for proposed output at {}.",
                         challenge_position - 1
                     );
-                    if value.to_vec() != challenged_output.to_vec() {
+                    if value.to_vec() != hash_to_fe(challenged_output).to_vec() {
                         error!(
                             "Invalid kzg proof {}/{challenged_output}.",
                             hex::encode(value.to_vec())
@@ -550,8 +550,8 @@ pub async fn handle_proposals(
                 }
 
                 info!(
-                    "Submitting proof {} for position {challenge_position}/{proposal_span}.",
-                    hex::encode(&encoded_seal)
+                    "Submitting proof for position {challenge_position}/{proposal_span} with {} kzg proof(s).",
+                    proofs.len()
                 );
                 debug!("safeOutput: {}", proof_journal.l2_output_root);
                 debug!(

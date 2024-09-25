@@ -15,12 +15,15 @@
 extern crate alloc;
 
 // use anyhow::anyhow;
+use crate::oracle::{send_slice_recv_vec, BlobFetchRequest, FPVM_GET_BLOB};
 use async_trait::async_trait;
 use c_kzg::KzgSettings;
 use kona_derive::errors::BlobProviderError;
 use kona_derive::traits::BlobProvider;
 use kona_primitives::{Blob, BlockInfo, IndexedBlobHash};
 use lazy_static::lazy_static;
+use risc0_zkvm::serde::to_vec;
+
 // use risc0_zkvm::sha::{Impl as SHA2, Sha256};
 
 #[cfg_attr(target_os = "zkvm", c_kzg::risc0_c_kzg_alloc_mod)]
@@ -28,6 +31,7 @@ pub mod c_kzg_alloc {
     // proc macro inserts calloc/malloc/free definitions here
 }
 
+// todo: use settings from alloy eips
 lazy_static! {
     /// KZG Ceremony data
     pub static ref KZG: (Vec<u8>, KzgSettings) = {
@@ -38,32 +42,33 @@ lazy_static! {
 }
 
 /// An untrusted-oracle-backed blob provider.
-#[derive(Debug, Clone)]
-pub struct RISCZeroBlobProvider<P: BlobProvider> {
-    blob_provider: P,
-}
-
-impl<P: BlobProvider> RISCZeroBlobProvider<P> {
-    /// Constructs a new `RISCZeroBlobProvider`.
-    pub fn new(blob_provider: P) -> Self {
-        Self { blob_provider }
-    }
-}
+#[derive(Debug, Clone, Default)]
+pub struct RISCZeroBlobProvider;
 
 #[async_trait]
-impl<P: BlobProvider + Sync + Send> BlobProvider for RISCZeroBlobProvider<P> {
+impl BlobProvider for RISCZeroBlobProvider {
     async fn get_blobs(
         &mut self,
         block_ref: &BlockInfo,
         blob_hashes: &[IndexedBlobHash],
     ) -> Result<Vec<Blob>, BlobProviderError> {
         risc0_zkvm::guest::env::log(&format!(
-            "Validating {} blob hashes for L1 block {} ({}).",
+            "Fetching {} blob hashes for L1 block {} ({}).",
             blob_hashes.len(),
             block_ref.number,
             block_ref.hash
         ));
-        let blobs = self.blob_provider.get_blobs(block_ref, blob_hashes).await?;
+        let mut blobs = Vec::with_capacity(blob_hashes.len());
+        for blob_hash in blob_hashes {
+            let request = to_vec(&BlobFetchRequest {
+                block_ref: block_ref.clone(),
+                blob_hash: blob_hash.clone(),
+            })
+            .expect("Failed to serialize blob request");
+            let blob_vec: Vec<u8> = send_slice_recv_vec(FPVM_GET_BLOB, request.as_slice());
+            blobs.push(Blob::from_slice(&blob_vec));
+        }
+        // let blobs = self.blob_provider.get_blobs(block_ref, blob_hashes).await?;
         risc0_zkvm::guest::env::log(&format!("Loaded {} blobs from oracle.", blobs.len()));
         assert_eq!(blob_hashes.len(), blobs.len());
         risc0_zkvm::guest::env::log("(INSECURE) Validation skipped.");

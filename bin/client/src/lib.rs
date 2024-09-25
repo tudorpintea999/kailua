@@ -18,14 +18,19 @@ use crate::oracle::{HINT_WRITER, ORACLE_READER};
 use alloy_primitives::{keccak256, B256};
 use anyhow::Context;
 use kailua_build::{KAILUA_FPVM_ELF, KAILUA_FPVM_ID};
-use kailua_common::oracle::{FPVM_GET_PREIMAGE, FPVM_WRITE_HINT, ORACLE_LRU_SIZE};
+use kailua_common::oracle::{
+    BlobFetchRequest, FPVM_GET_BLOB, FPVM_GET_PREIMAGE, FPVM_WRITE_HINT, ORACLE_LRU_SIZE,
+};
 use kona_client::l1::OracleBlobProvider;
 use kona_client::{BootInfo, CachingOracle};
+use kona_derive::traits::BlobProvider;
 use kona_preimage::{HintWriterClient, PreimageOracleClient};
+use risc0_zkvm::serde::from_slice;
 use risc0_zkvm::{default_prover, ExecutorEnv, ProverOpts, Receipt};
 use std::sync::Arc;
 use tokio::join;
 use tokio::runtime::Handle;
+use tokio::sync::Mutex;
 use tokio::task::spawn_blocking;
 use tracing::info;
 
@@ -53,6 +58,8 @@ pub async fn prove_zkvm_client() -> anyhow::Result<Receipt> {
             ORACLE_READER,
             HINT_WRITER,
         ));
+        let blob_provider = Arc::new(Mutex::new(OracleBlobProvider::new(oracle.clone())));
+        // todo: posix IO
         let env = ExecutorEnv::builder()
             .io_callback(FPVM_GET_PREIMAGE, |key| {
                 let byte_vec = key.to_vec();
@@ -66,6 +73,19 @@ pub async fn prove_zkvm_client() -> anyhow::Result<Receipt> {
                 let string = String::from_utf8(byte_vec)?;
                 Handle::current().block_on(async { oracle.write(&string).await })?;
                 Ok(vec![1u8].into())
+            })
+            .io_callback(FPVM_GET_BLOB, |request| {
+                let data = request.to_vec();
+                let request: BlobFetchRequest = from_slice(&data)?;
+                let res = Handle::current()
+                    .block_on(async {
+                        let mut provider = blob_provider.lock().await;
+                        provider
+                            .get_blobs(&request.block_ref, &[request.blob_hash])
+                            .await
+                    })
+                    .unwrap();
+                Ok(res[0].to_vec().into())
             })
             .build()?;
         let prover = default_prover();

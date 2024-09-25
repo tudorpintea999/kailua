@@ -16,7 +16,6 @@ use kailua_common::blobs::RISCZeroBlobProvider;
 use kailua_common::client::run_client;
 use kailua_common::oracle::{CachingRISCZeroOracle, ORACLE_LRU_SIZE};
 use kailua_common::ProofJournal;
-use kona_client::l1::OracleBlobProvider;
 use kona_client::BootInfo;
 use risc0_zkvm::guest::env;
 use std::sync::Arc;
@@ -29,7 +28,7 @@ fn main() {
             .await
             .expect("Failed to load BootInfo")
     });
-    let beacon = RISCZeroBlobProvider::new(OracleBlobProvider::new(oracle.clone()));
+    let beacon = RISCZeroBlobProvider;
     // Attempt to recompute the output hash at the target block number using kona
     let real_output_hash =
         run_client(oracle, Arc::new(boot.clone()), beacon).expect("Failed to compute output hash.");
