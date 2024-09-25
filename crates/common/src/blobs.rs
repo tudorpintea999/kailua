@@ -98,7 +98,7 @@ impl BlobProvider for RISCZeroBlobProvider {
             return Err(BlobProviderError::Custom(anyhow!("Missing blobs.")));
         }
         // verify commitments
-        // todo: amortize over entire execution
+        // todo: amortize over entire session
         c_kzg::KzgProof::verify_blob_kzg_proof_batch(
             blobs.as_slice(),
             commitments.as_slice(),
@@ -115,20 +115,6 @@ impl BlobProvider for RISCZeroBlobProvider {
             }
         }
         risc0_zkvm::guest::env::log("Blob hashes validated.");
-
-        // risc0_zkvm::guest::env::log("(INSECURE) Validation skipped.");
-        // for (blob, indexed_blob_hash) in core::iter::zip(&blobs, blob_hashes) {
-        //     let blob = c_kzg::Blob::from_bytes(blob.as_slice())
-        //         .expect("Failed to construct c_kzg blob from bytes");
-        //     let kzg_commitment = c_kzg::KzgCommitment::blob_to_kzg_commitment(&blob, &KZG.1)
-        //         .expect("Failed to convert blob to commitment");
-        //     let versioned_hash_bytes: versioned_commitment(kzg_commitment.as_slice());
-        //     if indexed_blob_hash.hash.0 != versioned_hash_bytes {
-        //         risc0_zkvm::guest::env::log("blobs are bad..");
-        //         return Err(BlobProviderError::Custom(anyhow!("Blob hash mismatch")));
-        //     }
-        //     risc0_zkvm::guest::env::log("Blob validated");
-        // }
         Ok(blobs.into_iter().map(|b| Blob::from(*b)).collect())
     }
 }
