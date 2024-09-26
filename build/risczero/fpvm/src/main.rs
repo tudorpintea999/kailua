@@ -14,15 +14,15 @@
 
 use kailua_common::blobs::RISCZeroBlobProvider;
 use kailua_common::client::run_client;
-use kailua_common::oracle::{CachingRISCZeroOracle, ORACLE_LRU_SIZE};
+use kailua_common::oracle::{ORACLE_LRU_SIZE, RISCZERO_ORACLE};
 use kailua_common::ProofJournal;
-use kona_client::BootInfo;
+use kona_client::{BootInfo, CachingOracle};
 use risc0_zkvm::guest::env;
 use std::sync::Arc;
 use kona_primitives::alloy_primitives::B256;
 
 fn main() {
-    let oracle = Arc::new(CachingRISCZeroOracle::new(ORACLE_LRU_SIZE));
+    let oracle = Arc::new(CachingOracle::new(ORACLE_LRU_SIZE, RISCZERO_ORACLE, RISCZERO_ORACLE));
     let boot = kona_common::block_on(async {
         BootInfo::load(oracle.as_ref())
             .await
