@@ -14,19 +14,20 @@
 
 extern crate alloc;
 
-use alloy_eips::eip4844::{kzg_to_versioned_hash, BYTES_PER_BLOB, BYTES_PER_COMMITMENT};
+use crate::oracle::BlobFetchRequest;
+use alloy_eips::eip4844::{
+    kzg_to_versioned_hash, BYTES_PER_BLOB, BYTES_PER_COMMITMENT, BYTES_PER_PROOF,
+};
 use anyhow::anyhow;
-// use anyhow::anyhow;
-use crate::oracle::{send_slice_recv_vec, BlobFetchRequest, FPVM_GET_BLOB};
 use async_trait::async_trait;
 use c_kzg::{Bytes48, KzgSettings};
 use kona_derive::errors::BlobProviderError;
 use kona_derive::traits::BlobProvider;
 use kona_primitives::{Blob, BlockInfo, IndexedBlobHash};
 use lazy_static::lazy_static;
-use risc0_zkvm::serde::to_vec;
-
-// use risc0_zkvm::sha::{Impl as SHA2, Sha256};
+use risc0_zkvm::guest::env::{FdReader, FdWriter};
+use std::io::{Read, Write};
+use std::sync::Mutex;
 
 #[cfg_attr(target_os = "zkvm", c_kzg::risc0_c_kzg_alloc_mod)]
 pub mod c_kzg_alloc {
@@ -38,7 +39,7 @@ pub extern "C" fn __assert_func(_file: *const i8, _line: i32, _func: *const i8, 
     panic!("c_kzg assertion failure.");
 }
 
-// todo: use settings from alloy eips
+// todo: use settings from alloy eips crate
 lazy_static! {
     /// KZG Ceremony data
     pub static ref KZG: (Vec<u8>, KzgSettings) = {
@@ -48,12 +49,20 @@ lazy_static! {
     };
 }
 
-/// An untrusted-oracle-backed blob provider.
-#[derive(Debug, Clone, Default)]
-pub struct RISCZeroBlobProvider;
+#[derive(Debug, Clone, Default, Copy)]
+pub struct RISCZeroPOSIXBlobProvider;
+
+pub static RISCZERO_POSIX_BLOB_PROVIDER: RISCZeroPOSIXBlobProvider = RISCZeroPOSIXBlobProvider;
+
+lazy_static! {
+    pub static ref RISCZERO_POSIX_BLOB_PROVIDER_READER: Mutex<FdReader> =
+        Mutex::new(FdReader::new(104));
+    pub static ref RISCZERO_POSIX_BLOB_PROVIDER_WRITER: Mutex<FdWriter<fn(&[u8])>> =
+        Mutex::new(FdWriter::new(105, |_| {}));
+}
 
 #[async_trait]
-impl BlobProvider for RISCZeroBlobProvider {
+impl BlobProvider for RISCZeroPOSIXBlobProvider {
     async fn get_blobs(
         &mut self,
         block_ref: &BlockInfo,
@@ -69,36 +78,44 @@ impl BlobProvider for RISCZeroBlobProvider {
         let mut commitments = Vec::with_capacity(blob_hashes.len());
         let mut proofs = Vec::with_capacity(blob_hashes.len());
         for blob_hash in blob_hashes {
-            let request = to_vec(&BlobFetchRequest {
+            let request = bincode::serialize(&BlobFetchRequest {
                 block_ref: block_ref.clone(),
                 blob_hash: blob_hash.clone(),
             })
-            .expect("Failed to serialize blob request");
-            let blob_vec: Vec<u8> = send_slice_recv_vec(FPVM_GET_BLOB, request.as_slice());
-            blobs.push(
-                c_kzg::Blob::from_bytes(&blob_vec[..BYTES_PER_BLOB])
-                    .expect("Failed to deserialize blob"),
-            );
-
-            commitments.push(
-                Bytes48::from_bytes(
-                    &blob_vec[BYTES_PER_BLOB..BYTES_PER_BLOB + BYTES_PER_COMMITMENT],
-                )
-                .expect("Failed to deserialize kzg commitment"),
-            );
-
-            proofs.push(
-                Bytes48::from_bytes(&blob_vec[BYTES_PER_BLOB + BYTES_PER_COMMITMENT..])
-                    .expect("Failed to deserialize kzg proof"),
-            );
+            .expect("Failed to serialize blob request.");
+            // Write the request to the host
+            RISCZERO_POSIX_BLOB_PROVIDER_WRITER
+                .lock()
+                .unwrap()
+                .write(&request)
+                .expect("Unexpected failure writing blob request.");
+            // Acquire reader
+            let mut reader = RISCZERO_POSIX_BLOB_PROVIDER_READER.lock().unwrap();
+            // Read the blob
+            let mut blob = [0u8; BYTES_PER_BLOB];
+            reader
+                .read_exact(&mut blob)
+                .expect("Unexpected failure reading blob data");
+            blobs.push(c_kzg::Blob::new(blob));
+            // Read the blob commitment
+            let mut commitment = [0u8; BYTES_PER_COMMITMENT];
+            reader
+                .read_exact(&mut commitment)
+                .expect("Unexpected failure reading blob commitment");
+            commitments.push(Bytes48::new(commitment));
+            // Read the blob proof
+            let mut proof = [0u8; BYTES_PER_PROOF];
+            reader
+                .read_exact(&mut proof)
+                .expect("Unexpected failure reading blob proof");
+            proofs.push(Bytes48::new(proof));
         }
-        // let blobs = self.blob_provider.get_blobs(block_ref, blob_hashes).await?;
         risc0_zkvm::guest::env::log(&format!("Loaded {} blobs from oracle.", blobs.len()));
         if blob_hashes.len() != blobs.len() {
             return Err(BlobProviderError::Custom(anyhow!("Missing blobs.")));
         }
         // verify commitments
-        // todo: amortize over entire session
+        // todo: amortize over entire client session
         c_kzg::KzgProof::verify_blob_kzg_proof_batch(
             blobs.as_slice(),
             commitments.as_slice(),

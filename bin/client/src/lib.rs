@@ -13,26 +13,22 @@
 // limitations under the License.
 
 pub mod oracle;
+pub mod oracle_posix;
 
 use crate::oracle::{HINT_WRITER, ORACLE_READER};
+use crate::oracle_posix::{POSIXBlobProvider, POSIXHintWriterClient};
 use alloy_primitives::{keccak256, B256};
 use anyhow::Context;
 use kailua_build::{KAILUA_FPVM_ELF, KAILUA_FPVM_ID};
-use kailua_common::oracle::{
-    BlobFetchRequest, FPVM_GET_BLOB, FPVM_GET_PREIMAGE, FPVM_WRITE_HINT, ORACLE_LRU_SIZE,
-};
+use kailua_common::oracle::ORACLE_LRU_SIZE;
 use kona_client::l1::OracleBlobProvider;
 use kona_client::{BootInfo, CachingOracle};
-use kona_derive::traits::BlobProvider;
-use kona_preimage::{HintWriterClient, PreimageOracleClient};
-use risc0_zkvm::serde::from_slice;
+use oracle_posix::{POSIXCallbackHandle, POSIXPreimageOracleClient};
 use risc0_zkvm::{default_prover, ExecutorEnv, ProverOpts, Receipt};
 use std::collections::VecDeque;
-use std::io::{BufReader, Read, Write};
-use std::sync::{Arc, Mutex};
+use std::io::BufReader;
+use std::sync::Arc;
 use tokio::join;
-use tokio::runtime::Handle;
-use tokio::sync::Mutex as AsyncMutex;
 use tokio::task::spawn_blocking;
 use tracing::info;
 
@@ -53,145 +49,44 @@ pub async fn run_native_client() -> anyhow::Result<Option<B256>> {
     kailua_common::client::run_client(oracle, boot, beacon)
 }
 
-#[derive(Debug, Clone)]
-pub struct POSIXPreimageOracleClient<OR: PreimageOracleClient> {
-    pub oracle: Arc<OR>,
-    pub preimage: Arc<Mutex<Option<BufReader<VecDeque<u8>>>>>,
-}
-
-// This receives an image from the zkvm to query for a preimage
-impl<OR: PreimageOracleClient> Write for POSIXPreimageOracleClient<OR> {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        // Fetch the preimage if the key length is correct
-        let byte_arr: [u8; 32] = buf
-            .try_into()
-            .or::<std::io::Error>(Err(std::io::ErrorKind::Interrupted.into()))?;
-        let preimage: VecDeque<u8> = Handle::current()
-            .block_on(async { self.oracle.get(byte_arr.try_into()?).await })
-            .unwrap()
-            .into();
-        // update the reader
-        self.preimage
-            .lock()
-            .unwrap()
-            .replace(BufReader::new(preimage));
-        Ok(32)
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-}
-
-// This writes a preimage to the zkvm
-impl<OR: PreimageOracleClient> Read for POSIXPreimageOracleClient<OR> {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        match self.preimage.lock().unwrap().as_mut() {
-            Some(reader) => reader.read(buf),
-            _ => Err(std::io::ErrorKind::Interrupted.into()),
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct PPOCHandle<OR: PreimageOracleClient> {
-    inner: Arc<Mutex<POSIXPreimageOracleClient<OR>>>,
-}
-
-impl<OR: PreimageOracleClient> From<POSIXPreimageOracleClient<OR>> for PPOCHandle<OR> {
-    fn from(oracle: POSIXPreimageOracleClient<OR>) -> Self {
-        Self {
-            inner: Arc::new(Mutex::new(oracle)),
-        }
-    }
-}
-
-impl<OR: PreimageOracleClient> Read for PPOCHandle<OR> {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        Ok(self
-            .inner
-            .lock()
-            .unwrap()
-            .read(buf)
-            .expect("PPOCHandle.read"))
-    }
-}
-
-impl<OR: PreimageOracleClient> Write for PPOCHandle<OR> {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        Ok(self
-            .inner
-            .lock()
-            .unwrap()
-            .write(buf)
-            .expect("PPOCHandle.write"))
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(self
-            .inner
-            .lock()
-            .unwrap()
-            .flush()
-            .expect("PPOCHandle.flush"))
-    }
-}
-
 pub async fn prove_zkvm_client() -> anyhow::Result<Receipt> {
     let client_task = spawn_blocking(|| {
+        // Kona preimage oracle
         let oracle = Arc::new(CachingOracle::new(
             ORACLE_LRU_SIZE,
             ORACLE_READER,
             HINT_WRITER,
         ));
-        let client = PPOCHandle::from(POSIXPreimageOracleClient {
+        // Kailua preimage oracle reader
+        let oracle_posix = POSIXCallbackHandle::from(POSIXPreimageOracleClient {
             oracle: oracle.clone(),
-            preimage: Arc::new(Mutex::new(None)),
+            key: VecDeque::new(),
+            preimage: VecDeque::new(),
         });
-        let client_reader = BufReader::new(client.clone());
-        let blob_provider = Arc::new(AsyncMutex::new(OracleBlobProvider::new(oracle.clone())));
-        // todo: posix IO
+        let oracle_posix_reader = BufReader::new(oracle_posix.clone());
+        // Kailua hint writer
+        let writer_posix = POSIXHintWriterClient {
+            writer: oracle.clone(),
+        };
+        // Kona blob provider
+        let provider = OracleBlobProvider::new(oracle.clone());
+        // Kailua blob posix
+        let provider_posix = POSIXCallbackHandle::from(POSIXBlobProvider {
+            provider,
+            request: Default::default(),
+            blob: Default::default(),
+        });
+        let provider_posix_reader = BufReader::new(provider_posix.clone());
+        // Execution environment
         let env = ExecutorEnv::builder()
-            .read_fd(100, client_reader)
-            .write_fd(101, client)
-            .io_callback(FPVM_GET_PREIMAGE, |key| {
-                let byte_vec = key.to_vec();
-                let byte_arr: [u8; 32] = byte_vec.as_slice().try_into()?;
-                let res =
-                    Handle::current().block_on(async { oracle.get(byte_arr.try_into()?).await })?;
-                Ok(res.into())
-            })
-            .io_callback(FPVM_WRITE_HINT, |hint| {
-                let byte_vec = Vec::<u8>::from(&hint.to_vec()[4..]);
-                let string = String::from_utf8(byte_vec)?;
-                Handle::current().block_on(async { oracle.write(&string).await })?;
-                Ok(vec![1u8].into())
-            })
-            .io_callback(FPVM_GET_BLOB, |request| {
-                let data = request.to_vec();
-                let request: BlobFetchRequest = from_slice(&data)?;
-                let blob = Handle::current()
-                    .block_on(async {
-                        let mut provider = blob_provider.lock().await;
-                        provider
-                            .get_blobs(&request.block_ref, &[request.blob_hash])
-                            .await
-                    })
-                    .unwrap();
-                // todo: refactor kzg commitment logic as function
-                let c_kzg_blob = c_kzg::Blob::from_bytes(blob[0].as_slice())?;
-                let settings = alloy::consensus::EnvKzgSettings::default();
-                let commitment =
-                    c_kzg::KzgCommitment::blob_to_kzg_commitment(&c_kzg_blob, settings.get())
-                        .expect("Failed to convert blob to commitment");
-                let proof = c_kzg::KzgProof::compute_blob_kzg_proof(
-                    &c_kzg_blob,
-                    &commitment.to_bytes(),
-                    settings.get(),
-                )?;
-                let result = [blob[0].as_slice(), commitment.as_slice(), proof.as_slice()].concat();
-                Ok(result.into())
-            })
+            // Handle preimage reads via posix
+            .read_fd(100, oracle_posix_reader)
+            .write_fd(101, oracle_posix)
+            // Handle hint writes via posix
+            .write_fd(102, writer_posix)
+            // Handle blob reads via posix
+            .read_fd(104, provider_posix_reader)
+            .write_fd(105, provider_posix)
             .build()?;
         let prover = default_prover();
         let prove_info = prover.prove_with_opts(env, KAILUA_FPVM_ELF, &ProverOpts::groth16())?;

@@ -15,44 +15,18 @@
 use alloy_primitives::keccak256;
 use anyhow::bail;
 use async_trait::async_trait;
-use bytemuck::Pod;
 use kona_preimage::{HintWriterClient, PreimageKey, PreimageKeyType, PreimageOracleClient};
 use kona_primitives::IndexedBlobHash;
 use lazy_static::lazy_static;
 use op_alloy_protocol::BlockInfo;
-use risc0_zkvm::guest::env::{syscall, FdReader, FdWriter};
+use risc0_zkvm::guest::env::{FdReader, FdWriter};
 use risc0_zkvm::sha::{Impl as SHA2, Sha256};
-use risc0_zkvm_platform::syscall::{Return, SyscallName};
-use risc0_zkvm_platform::{align_up, declare_syscall, WORD_SIZE};
 use serde::{Deserialize, Serialize};
 use std::io::{Read, Write};
 use std::sync::Mutex;
 
-// Declare system calls for IO
-declare_syscall!(pub FPVM_GET_PREIMAGE);
-declare_syscall!(pub FPVM_WRITE_HINT);
-declare_syscall!(pub FPVM_GET_BLOB);
-
-/// Exchanges slices of plain old data with the host, receiving the response in a vector.
-pub fn send_slice_recv_vec<T: Pod, U: Pod>(syscall_name: SyscallName, to_host: &[T]) -> Vec<U> {
-    let Return(nbytes, _) = syscall(syscall_name, bytemuck::cast_slice(to_host), &mut []);
-    let nwords = align_up(nbytes as usize, WORD_SIZE) / WORD_SIZE;
-    let mut from_host_buf = vec![0u32; nwords];
-    syscall(syscall_name, &[], from_host_buf.as_mut_slice());
-    let v2: &[U] = bytemuck::cast_slice(from_host_buf.as_slice());
-    v2.iter()
-        .copied()
-        .take(nbytes as usize / core::mem::size_of::<U>())
-        .collect()
-}
-
 /// The size of the LRU cache in the oracle.
 pub const ORACLE_LRU_SIZE: usize = 1024;
-
-#[derive(Debug, Clone, Copy, Default)]
-pub struct RISCZeroOracle;
-
-pub static RISCZERO_ORACLE: RISCZeroOracle = RISCZeroOracle;
 
 pub fn validate_preimage(key: &PreimageKey, value: &[u8]) -> anyhow::Result<()> {
     let key_type = key.key_type();
@@ -83,99 +57,77 @@ lazy_static! {
     pub static ref RISCZERO_POSIX_ORACLE_READER: Mutex<FdReader> = Mutex::new(FdReader::new(100));
     pub static ref RISCZERO_POSIX_ORACLE_WRITER: Mutex<FdWriter<fn(&[u8])>> =
         Mutex::new(FdWriter::new(101, |_| {}));
+    pub static ref RISCZERO_POSIX_HINT_WRITER: Mutex<FdWriter<fn(&[u8])>> =
+        Mutex::new(FdWriter::new(102, |_| {}));
 }
 
 #[async_trait]
 impl PreimageOracleClient for RISCZeroPOSIXOracle {
     async fn get(&self, key: PreimageKey) -> anyhow::Result<Vec<u8>> {
+        // Provide key
         let key_bytes: [u8; 32] = key.into();
         RISCZERO_POSIX_ORACLE_WRITER
             .lock()
             .unwrap()
-            .write(&key_bytes)?;
-
-        let mut response = Vec::<u8>::new();
-        RISCZERO_POSIX_ORACLE_READER
-            .lock()
-            .unwrap()
-            .read_to_end(&mut response)?;
-
-        validate_preimage(&key, &response)?;
+            .write(&key_bytes)
+            .expect("Unexpected failure writing preimage key");
+        // Acquire reader
+        let mut reader = RISCZERO_POSIX_ORACLE_READER.lock().unwrap();
+        // Read preimage length
+        let mut len_bytes = [0u8; 8];
+        reader
+            .read_exact(&mut len_bytes)
+            .expect("Unexpected failure reading preimage length");
+        let len = u64::from_be_bytes(len_bytes) as usize;
+        // Read preimage
+        let mut response = vec![0u8; len];
+        reader
+            .read_exact(&mut response)
+            .expect("Unexpected failure reading preimage");
+        // Verify host response
+        validate_preimage(&key, &response).expect("Invalid preimage");
 
         Ok(response)
     }
 
     async fn get_exact(&self, key: PreimageKey, buf: &mut [u8]) -> anyhow::Result<()> {
+        // Provide key
         let key_bytes: [u8; 32] = key.into();
         RISCZERO_POSIX_ORACLE_WRITER
             .lock()
             .unwrap()
-            .write(&key_bytes)?;
-
-        RISCZERO_POSIX_ORACLE_READER
-            .lock()
-            .unwrap()
-            .read_exact(buf)?;
-
-        validate_preimage(&key, buf)?;
+            .write(&key_bytes)
+            .expect("Unexpected failure writing exact preimage key");
+        // Acquire reader
+        let mut reader = RISCZERO_POSIX_ORACLE_READER.lock().unwrap();
+        // Read preimage length
+        let mut len_bytes = [0u8; 8];
+        reader
+            .read_exact(&mut len_bytes)
+            .expect("Unexpected failure reading exact preimage length");
+        // Read preimage
+        reader
+            .read_exact(buf)
+            .expect("Unexpected failure reading exact preimage");
+        // Verify host response
+        validate_preimage(&key, buf).expect("Invalid exact preimage");
 
         Ok(())
     }
 }
 
 #[async_trait]
-impl PreimageOracleClient for RISCZeroOracle {
-    async fn get(&self, key: PreimageKey) -> anyhow::Result<Vec<u8>> {
-        let key_bytes: [u8; 32] = key.into();
-        let preimage_vec: Vec<u8> = send_slice_recv_vec(FPVM_GET_PREIMAGE, key_bytes.as_slice());
-        let preimage_bytes = preimage_vec.as_slice();
-
-        validate_preimage(&key, preimage_bytes)?;
-
-        Ok(preimage_vec)
-    }
-
-    async fn get_exact(&self, key: PreimageKey, buf: &mut [u8]) -> anyhow::Result<()> {
-        let key_bytes: [u8; 32] = key.into();
-        let preimage_vec: Vec<u8> = send_slice_recv_vec(FPVM_GET_PREIMAGE, key_bytes.as_slice());
-        let preimage_bytes = preimage_vec.as_slice();
-
-        buf.copy_from_slice(preimage_bytes);
-
-        validate_preimage(&key, preimage_bytes)?;
-
-        Ok(())
-    }
-}
-
-// #[async_trait]
-// impl HintWriterClient for RISCZeroPOSIXOracle {
-//     async fn write(&self, hint: &str) -> anyhow::Result<()> {
-//         // Form the hint into a byte buffer. The format is a 4-byte big-endian length prefix
-//         // followed by the hint string.
-//         let mut hint_bytes = vec![0u8; hint.len() + 4];
-//         hint_bytes[0..4].copy_from_slice(u32::to_be_bytes(hint.len() as u32).as_ref());
-//         hint_bytes[4..].copy_from_slice(hint.as_bytes());
-//
-//     }
-// }
-
-#[async_trait]
-impl HintWriterClient for RISCZeroOracle {
+impl HintWriterClient for RISCZeroPOSIXOracle {
     async fn write(&self, hint: &str) -> anyhow::Result<()> {
-        // Form the hint into a byte buffer. The format is a 4-byte big-endian length prefix
-        // followed by the hint string.
-        let mut hint_bytes = vec![0u8; hint.len() + 4];
-        hint_bytes[0..4].copy_from_slice(u32::to_be_bytes(hint.len() as u32).as_ref());
-        hint_bytes[4..].copy_from_slice(hint.as_bytes());
-
-        // let hint_ack: &[u8] = send_recv_slice(FPVM_WRITE_HINT, hint_bytes.as_slice());
-        let hint_ack: Vec<u8> = send_slice_recv_vec(FPVM_WRITE_HINT, hint_bytes.as_slice());
-
-        if hint_ack.is_empty() {
-            bail!("Did not receive hint acknowledgement from host");
-        }
-
+        let hint_bytes = hint.as_bytes();
+        assert_eq!(
+            RISCZERO_POSIX_HINT_WRITER
+                .lock()
+                .unwrap()
+                .write(hint_bytes)
+                .unwrap(),
+            hint_bytes.len()
+        );
         Ok(())
     }
 }

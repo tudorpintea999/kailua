@@ -1791,6 +1791,7 @@ dependencies = [
  "alloy-rpc-types-beacon",
  "anyhow",
  "async-trait",
+ "bincode",
  "bytemuck",
  "c-kzg",
  "kona-client",

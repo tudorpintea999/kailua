@@ -12,26 +12,31 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use kailua_common::blobs::RISCZeroBlobProvider;
 use kailua_common::client::run_client;
-use kailua_common::oracle::{ORACLE_LRU_SIZE, RISCZERO_ORACLE, RISCZERO_POSIX_ORACLE};
 use kailua_common::ProofJournal;
 use kona_client::{BootInfo, CachingOracle};
+use kona_primitives::alloy_primitives::B256;
 use risc0_zkvm::guest::env;
 use std::sync::Arc;
-use kona_primitives::alloy_primitives::B256;
 
 fn main() {
-    let oracle = Arc::new(CachingOracle::new(ORACLE_LRU_SIZE, RISCZERO_ORACLE, RISCZERO_ORACLE));
+    let oracle = Arc::new(CachingOracle::new(
+        kailua_common::oracle::ORACLE_LRU_SIZE,
+        kailua_common::oracle::RISCZERO_POSIX_ORACLE,
+        kailua_common::oracle::RISCZERO_POSIX_ORACLE,
+    ));
     let boot = kona_common::block_on(async {
         BootInfo::load(oracle.as_ref())
             .await
             .expect("Failed to load BootInfo")
     });
-    let beacon = RISCZeroBlobProvider;
     // Attempt to recompute the output hash at the target block number using kona
-    let real_output_hash =
-        run_client(oracle, Arc::new(boot.clone()), beacon).expect("Failed to compute output hash.");
+    let real_output_hash = run_client(
+        oracle,
+        Arc::new(boot.clone()),
+        kailua_common::blobs::RISCZERO_POSIX_BLOB_PROVIDER,
+    )
+    .expect("Failed to compute output hash.");
     // Write the proof journal
     let mut proof_journal = ProofJournal::from(boot.clone());
     if let Some(computed_output) = real_output_hash {
