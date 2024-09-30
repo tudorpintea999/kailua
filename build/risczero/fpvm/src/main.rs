@@ -14,7 +14,7 @@
 
 use kailua_common::blobs::RISCZeroBlobProvider;
 use kailua_common::client::run_client;
-use kailua_common::oracle::{ORACLE_LRU_SIZE, RISCZERO_ORACLE};
+use kailua_common::oracle::{ORACLE_LRU_SIZE, RISCZERO_ORACLE, RISCZERO_POSIX_ORACLE};
 use kailua_common::ProofJournal;
 use kona_client::{BootInfo, CachingOracle};
 use risc0_zkvm::guest::env;

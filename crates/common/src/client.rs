@@ -64,6 +64,7 @@ pub fn run_client<
         ));
         let Some(payload) = driver.produce_disputed_payload().await? else {
             // Insufficient l1 data as l1-head to derive l2 blocks of claim height
+            log("INSUFFICIENT DATA");
             return Ok(None);
         };
 

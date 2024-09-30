@@ -11,6 +11,7 @@ anyhow.workspace = true
 async-trait.workspace = true
 bincode.workspace = true
 bytemuck.workspace = true
+bytes.workspace = true
 c-kzg.workspace = true
 clap.workspace = true
 lru.workspace = true
