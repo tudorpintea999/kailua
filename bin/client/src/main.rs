@@ -31,7 +31,7 @@ async fn main() -> anyhow::Result<()> {
     let receipt = kailua_client::prove_zkvm_client()
         .await
         .expect("Failed to run zk client.");
-    // Write the receipt to disk
+    // Prepare receipt file
     let proof_journal = ProofJournal::decode_packed(receipt.journal.as_ref())
         .expect("Failed to decode receipt output");
     let mut output_file = File::create(fpvm_proof_file_name(
@@ -41,6 +41,7 @@ async fn main() -> anyhow::Result<()> {
     ))
     .await
     .expect("Failed to create receipt output file");
+    // Write receipt data to file
     let receipt_bytes = bincode::serialize(&receipt).expect("Could not serialize receipt.");
     output_file
         .write_all(receipt_bytes.as_slice())

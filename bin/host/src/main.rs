@@ -28,7 +28,7 @@ async fn main() -> anyhow::Result<()> {
     // compute receipt if uncached
     let file_name =
         fpvm_proof_file_name(cfg.kona.l1_head, cfg.kona.l2_claim, cfg.kona.l2_output_root);
-    if Path::new(&file_name).exists() {
+    if let Ok(true) = Path::new(&file_name).try_exists() {
         info!("Proving skipped. Receipt file {file_name} already exists.");
     } else {
         info!("Computing uncached receipt.");
