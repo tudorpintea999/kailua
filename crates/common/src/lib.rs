@@ -21,7 +21,6 @@ use kona_primitives::RollupConfig;
 use risc0_zkvm::sha::{Impl as SHA2, Sha256};
 use serde::{Deserialize, Serialize};
 
-#[cfg(target_os = "zkvm")]
 pub mod blobs;
 pub mod client;
 pub mod driver;

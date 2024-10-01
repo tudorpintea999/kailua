@@ -9,7 +9,8 @@ members = [
 [workspace.dependencies]
 alloy = { version = "0.3.1", default-features = false, features = ["json"] }
 #alloy-contract = { version = "0.3.3", features = ["pubsub"] }
-alloy-eips = "0.3.1"
+alloy-consensus = "0.3.1"
+alloy-eips = { version = "0.3.1", features = ["kzg"] }
 alloy-primitives = { version = "0.8", default-features = false }
 alloy-provider = "0.3.1"
 #alloy-sol-types = { version = "0.8.3", features = ["json"] }
@@ -20,7 +21,7 @@ bincode = "1.3.3"
 bytemuck = "1.12"
 bytes = "1.7.2"
 clap = "4.5.11"
-c-kzg = { version = "1.0.2", default-features = false, features = ["portable"] }
+c-kzg = "1.0.2"
 ethers = "2.0.14"
 foundry-compilers = "0.11.0"
 hex = "0.4.3"

@@ -29,17 +29,24 @@ use risc0_zkvm::guest::env::{FdReader, FdWriter};
 use std::io::{Read, Write};
 use std::sync::Mutex;
 
-#[cfg_attr(target_os = "zkvm", c_kzg::risc0_c_kzg_alloc_mod)]
+#[cfg(target_os = "zkvm")]
+#[c_kzg::risc0_c_kzg_alloc_mod]
 pub mod c_kzg_alloc {
     // proc macro inserts calloc/malloc/free definitions here
+
+    #[no_mangle]
+    pub extern "C" fn __assert_func(
+        _file: *const i8,
+        _line: i32,
+        _func: *const i8,
+        _expr: *const i8,
+    ) {
+        panic!("c_kzg assertion failure.");
+    }
 }
 
-#[no_mangle]
-pub extern "C" fn __assert_func(_file: *const i8, _line: i32, _func: *const i8, _expr: *const i8) {
-    panic!("c_kzg assertion failure.");
-}
-
-// todo: use settings from alloy eips crate
+// todo: hardcode without serde in guest image
+#[cfg(target_os = "zkvm")]
 lazy_static! {
     /// KZG Ceremony data
     pub static ref KZG: (Vec<u8>, KzgSettings) = {
@@ -47,6 +54,19 @@ lazy_static! {
         let settings = KzgSettings::from_u8_slice(&mut data);
         (data, settings)
     };
+}
+
+#[cfg(not(target_os = "zkvm"))]
+lazy_static! {
+    pub static ref KZG: alloy_eips::eip4844::env_settings::EnvKzgSettings = Default::default();
+}
+
+pub fn kzg_settings() -> &'static KzgSettings {
+    #[cfg(target_os = "zkvm")]
+    return &KZG.1;
+
+    #[cfg(not(target_os = "zkvm"))]
+    return KZG.get();
 }
 
 #[derive(Debug, Clone, Default, Copy)]
@@ -120,7 +140,7 @@ impl BlobProvider for RISCZeroPOSIXBlobProvider {
             blobs.as_slice(),
             commitments.as_slice(),
             proofs.as_slice(),
-            &KZG.1,
+            kzg_settings(),
         )
         .expect("Failed to batch validate kzg proofs");
         risc0_zkvm::guest::env::log("Blob commitments validated.");
