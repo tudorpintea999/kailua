@@ -30,6 +30,7 @@ async fn main() -> anyhow::Result<()> {
             #[cfg(feature = "devnet")]
             kailua_cli::fault::fault(fault_args).await?
         }
+        Cli::Benchmark(bench_args) => kailua_cli::bench::benchmark(bench_args).await?,
     }
     Ok(())
 }

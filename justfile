@@ -81,6 +81,17 @@ devnet-validate verbosity="-vv" l1_rpc="http://127.0.0.1:8545" l1_beacon_rpc="ht
 devnet-prove block_number verbosity="-vv" data=".localtestdata":
   RISC0_DEV_MODE=1 just prove {{block_number}} http://localhost:8545 http://localhost:5052 http://localhost:9545 http://localhost:7545 {{data}} {{verbosity}}
 
+bench l1_rpc l1_beacon_rpc l2_rpc rollup_node_rpc data start range count verbosity="":
+    ./target/debug/kailua-cli benchmark \
+          --l1-node-address {{l1_rpc}} \
+          --l1-beacon-address {{l1_beacon_rpc}} \
+          --l2-node-address {{l2_rpc}} \
+          --op-node-address {{rollup_node_rpc}} \
+          --data-dir {{data}} \
+          --bench-start {{start}} \
+          --bench-range {{range}} \
+          --bench-count {{count}} \
+          {{verbosity}}
 
 # Run the client program natively with the host program attached.
 prove block_number l1_rpc l1_beacon_rpc l2_rpc rollup_node_rpc data verbosity="":

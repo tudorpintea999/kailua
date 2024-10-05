@@ -26,6 +26,7 @@ use kailua_contracts::Safe::SafeInstance;
 use std::str::FromStr;
 use tracing::debug;
 
+pub mod bench;
 pub mod blob_provider;
 pub mod channel;
 pub mod deploy;
@@ -45,6 +46,7 @@ pub enum Cli {
     Propose(propose::ProposeArgs),
     Validate(validate::ValidateArgs),
     TestFault(fault::FaultArgs),
+    Benchmark(bench::BenchArgs),
 }
 
 impl Cli {
@@ -54,6 +56,7 @@ impl Cli {
             Cli::Propose(args) => args.v,
             Cli::Validate(args) => args.v,
             Cli::TestFault(args) => args.propose_args.v,
+            Cli::Benchmark(args) => args.v,
         }
     }
 }

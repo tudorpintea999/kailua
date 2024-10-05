@@ -24,7 +24,7 @@ use kailua_common::oracle::ORACLE_LRU_SIZE;
 use kona_client::l1::OracleBlobProvider;
 use kona_client::{BootInfo, CachingOracle};
 use oracle_posix::{POSIXCallbackHandle, POSIXPreimageOracleClient};
-use risc0_zkvm::{default_prover, ExecutorEnv, ProverOpts, Receipt};
+use risc0_zkvm::{default_prover, ExecutorEnv, ProveInfo, ProverOpts};
 use std::collections::VecDeque;
 use std::io::BufReader;
 use std::sync::Arc;
@@ -49,7 +49,7 @@ pub async fn run_native_client() -> anyhow::Result<Option<B256>> {
     kailua_common::client::run_client(oracle, boot, beacon)
 }
 
-pub async fn prove_zkvm_client() -> anyhow::Result<Receipt> {
+pub async fn prove_zkvm_client() -> anyhow::Result<ProveInfo> {
     let client_task = spawn_blocking(|| {
         // Kona preimage oracle
         let oracle = Arc::new(CachingOracle::new(
@@ -99,7 +99,7 @@ pub async fn prove_zkvm_client() -> anyhow::Result<Receipt> {
             .verify(KAILUA_FPVM_ID)
             .context("receipt verification")?;
         println!("Receipt verified.");
-        Ok::<_, anyhow::Error>(prove_info.receipt)
+        Ok::<_, anyhow::Error>(prove_info)
     });
     join!(client_task).0?
 }

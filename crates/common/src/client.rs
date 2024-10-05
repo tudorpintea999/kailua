@@ -76,6 +76,7 @@ pub fn run_client<
                 .with_hinter(l2_provider.clone())
                 .build()?;
 
+        log("HEADER");
         let header = executor
             .execute_payload(payload.attributes.clone())?
             .clone();
@@ -89,7 +90,7 @@ pub fn run_client<
 
         return Ok(Some(output_root));
 
-        // vestigial code below for when kona server can handle multi-block proofs
+        // vestigial code below for when kona can handle multi-block proofs
 
         // loop {
         //
