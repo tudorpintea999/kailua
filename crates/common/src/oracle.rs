@@ -26,8 +26,7 @@ use std::io::{Read, Write};
 use std::sync::Mutex;
 
 /// The size of the LRU cache in the oracle.
-pub const ORACLE_LRU_SIZE: usize = 512;
-// 19569146707
+pub const ORACLE_LRU_SIZE: usize = 1024;
 
 pub fn validate_preimage(key: &PreimageKey, value: &[u8]) -> anyhow::Result<()> {
     let key_type = key.key_type();
