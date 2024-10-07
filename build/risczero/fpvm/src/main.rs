@@ -14,17 +14,13 @@
 
 use kailua_common::client::run_client;
 use kailua_common::ProofJournal;
-use kona_client::{BootInfo, CachingOracle};
+use kona_client::BootInfo;
 use kona_primitives::alloy_primitives::B256;
 use risc0_zkvm::guest::env;
 use std::sync::Arc;
 
 fn main() {
-    let oracle = Arc::new(CachingOracle::new(
-        kailua_common::oracle::ORACLE_LRU_SIZE,
-        kailua_common::oracle::RISCZERO_POSIX_ORACLE,
-        kailua_common::oracle::RISCZERO_POSIX_ORACLE,
-    ));
+    let oracle = Arc::new(kailua_common::oracle::RISCZERO_POSIX_ORACLE);
     let boot = kona_common::block_on(async {
         BootInfo::load(oracle.as_ref())
             .await
