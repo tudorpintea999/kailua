@@ -14,7 +14,7 @@ Kailua enables rollup operators to add a new `FaultProofGame` contract, compatib
 
 ## Prerequisites
 1. [rust](https://www.rust-lang.org/tools/install)
-2. [just](https://just.systems/man/en/chapter_1.html)
+2. [just](https://just.systems/man/en/)
 3. [docker](https://www.docker.com/)
 
 ## Devnet Usage
