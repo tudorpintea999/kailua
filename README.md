@@ -1,10 +1,17 @@
 # Kailua
 
-Kailua uses the RISC-Zero zkVM to verifiably run Optimism's [Kona][kona] and secure rollups with cryptographic proofs for faster finality.
+Kailua uses the RISC-Zero zkVM to verifiably run Optimism's [Kona][kona] and secure rollups with cryptographic proofs enabling faster finality and reduced operational costs.
+
+Kailua's Fault Proving Game is designed to require constant collateral lockups from both proposers and validators (challengers), where as the Bisection-based fault dispute game backed by Cannon requires a linear number of deposits proportional to the number of proposals/challenges.
+
+The fault proofs are estimated to require on the order of 100 billion cycles to prove in the worst case, which, on Bonsai, costs on the order of 200 USD and takes less than an hour to prove.
+All proving costs are borne by the dishonest party in the protocol, whether that is the proposer or validator.
 
 ## Development Status
 
 `kailua` as well as `kona` are still in active development and are NOT suitable for production usage.
+
+Notably, the current version of Kailua does not yet have all features implemented and does not realize the full benefits of the entire design.
 
 ## Fraud/Validity Proofs
 
