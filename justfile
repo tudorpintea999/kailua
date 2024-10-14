@@ -189,12 +189,12 @@ test verbosity="-v":
     #!/usr/bin/env bash
 
     echo "Rebuilding kailua using cargo"
-    just build
+    just devnet-build
 
     echo "Running cargo tests"
-    RISC0_DEV_MODE=1 cargo test
+    RISC0_DEV_MODE=1 cargo test -F devnet
 
-    echo "Running offline proof for op-sepolia block 16491249 (This will take time, and money if RISC0_DEV_MODE is not enabled)"
+    echo "Running offline proof for op-sepolia block 16491249 in dev-mode"
     RISC0_DEV_MODE=1 just prove-offline 16491249 0x82da7204148ba4d8d59e587b6b3fdde5561dc31d9e726220f7974bf9f2158d75 0xa548f22e1aa590de7ed271e3eab5b66c6c3db9b8cb0e3f91618516ea9ececde4 0x09b298a83baf4c2e3c6a2e355bb09e27e3fdca435080e8754f8749233d7333b2 0x33a3e5721faa4dc6f25e75000d9810fd6c41320868f3befcc0c261a71da398e1 11155420 ./testdata/16491249 {{verbosity}}
 
     echo "Cleanup: Removing any .fake receipt files in directory."
