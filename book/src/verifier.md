@@ -80,7 +80,7 @@ cd crates/contracts/foundry
 constructor(address admin) Ownable(admin)
 ```
 
-The `RISCZeroVerifierRouter` constructor requires a single `admin` address, which is an account authorised to modify 
+The `RISCZeroVerifierRouter` constructor requires a single `admin` address, which is an account authorized to modify 
 the router in one of two ways after it is deployed:
 1. Add a new verification backend through `addVerifier`:
 2. Permanently disable a verification backend through `removeVerifier`:
