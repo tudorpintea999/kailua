@@ -19,7 +19,7 @@ published per proposal.
 Consequently, this parameter will determine your proposer's DA costs for using Kailua.
 
 ```admonish note
-The current implementation does not yet support mutli-block fault proofs, which means that proposals will have to
+The current implementation does not yet support multi-block fault proofs, which means that proposals will have to
 publish a commitment per covered L2 block in the proposal.
 ```
 
@@ -31,7 +31,7 @@ Subsequently, combining `S` with your rollup's block time determines how often y
 to ensure the liveness of your chain.
 
 ```admonish example
-Consider Optimism Mainnnet as an example, which has a block time of 2 seconds.
+Consider Optimism Mainnet as an example, which has a block time of 2 seconds.
 To keep its current average sequencing frequency of ~55 minutes, it only needs to publish ~1650 commitments per proposal.
 To maximize the utilization of the extra blob published when proposing, OP Mainnet can relax its proposal rate to once
 per 2 hours and 15 minutes.
