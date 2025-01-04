@@ -80,7 +80,7 @@ This functionality requires some additional parameters when starting the validat
 These parameters can be passed in as CLI arguments or set as environment variables
 
 #### Proof Requests
-The following first set of parameters determine where/how requests are made:
+The following first set of parameters determines where/how requests are made:
 * `boundless_rpc_url`: The rpc endpoint of the L1 chain where the Boundless network is deployed.
 * `boundless_wallet_key`: The wallet private key to use to send proof request transactions.
 * `boundless_offchain`: (Optional) Flag instructing whether to submit proofs off-chain.
@@ -90,7 +90,7 @@ The following first set of parameters determine where/how requests are made:
 * `boundless_lookback`: (Defaults to `5`) The number of previous proof requests to inspect for duplicates before making a new proof request.
 
 #### Storage Provider
-The below second set of parameters determine where the proven executable and its input are stored:
+The below second set of parameters determines where the proven executable and its input are stored:
 * `storage_provider`: One of `s3`, `pinata`, or `file`.
 * `s3_access_key`: The `s3` access key.
 * `s3_secret_key`: The `s3` secret key.
