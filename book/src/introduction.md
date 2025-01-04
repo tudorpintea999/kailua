@@ -10,14 +10,14 @@ Kailua is in active development and has not yet been reviewed for use in product
 
 ## Introduction
 
-Kailua is suite of tools and contracts for upgrading Optimistic rollups to use ZK Fault Proofs powered by the RISC Zero zkVM.
+Kailua is a suite of tools and contracts for upgrading Optimistic rollups to use ZK Fault Proofs powered by the RISC Zero zkVM.
 Kailua introduces its own novel fault proof game design which provides the best in class security guarantees for sequencing rollup transactions.
 These benefits come at marginal added operational costs compared to full validity proving.
 
 ### Withdrawal Delay
 
 A delay attack happens when a dishonest party attempts to delay the withdrawal finality of correctly sequenced transactions.
-For optimistic rollups, the main attack vector is through triggering on-chain disputes using the fault proving mechanism.
+For optimistic rollups, the main attack vector is through triggering on-chain disputes using the fault-proving mechanism.
 
 ```admonish check
 Kailua's dispute resolution mechanism resolves disputes as fast as proofs can be generated.
@@ -45,7 +45,7 @@ predetermined amount, honest parties will be granted more time until gas costs s
 
 **Whale** attackers can overwhelm honest parties in a dispute resolution mechanism by using multiple identities to flood
 the system with disputes.
-In fault proving schemes where a defender has to issue a timely response on-chain to every dispute, the costs borne
+In fault-proving schemes where a defender has to issue a timely response on-chain to every dispute, the costs borne
 by the defender to continuously participate in all open disputes until they are resolved can be overwhelming, leading
 to some faults slipping through.
 
@@ -58,7 +58,7 @@ generate.
 
 ### Resource Exhaustion
 
-Some fault proof protocols require additional collateral to be staked for every move made in the system, while others
+Some fault-proof protocols require additional collateral to be staked for every move made in the system, while others
 require proofs to be generated in a timely manner.
 These two requirements cause some other systems to be vulnerable to resource exhaustion, where the resource can be
 the collateral or the proving power required for an honest party to issue a timely response, even if it can afford the
