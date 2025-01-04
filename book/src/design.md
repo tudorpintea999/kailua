@@ -1,6 +1,6 @@
 # Design Overview
 
-Kailua's ZK fault proof game operates seamlessly in two main ways:
+Kailua's ZK fault-proof game operates seamlessly in two main ways:
 1. Disputes are non-interactive, removing the need for a "bisection" or multi-round on-chain search for a fault.
 2. Disputes are implicit between contradictory proposals, removing the need for a special "challenge" transaction.
 
@@ -54,7 +54,7 @@ at most M non-empty blocks, where N >> M.
 Each new sequencing proposal implicitly disputes the last existing proposal that contradicts it.
 Once this happens, a proof is required to demonstrate which of the two contradictory proposals, if any, commits to the
 correct sequencing state at their first point of divergence.
-The proof then eliminates one, or both, contradictory proposals, and neither proposals can be finalized until the proof
+The proof then eliminates one, or both, contradictory proposals, and neither proposal can be finalized until the proof
 is submitted.
 
 ```admonish note
@@ -89,7 +89,7 @@ Consider the above example scenario, where proposal `A` is finalized, while `B`,
 proposals pending finalization, while all others are invalid.
 
 A plain edge from a parent to a child indicates that the child proposal was made while no contradictory siblings should have existed.
-A checkmark on the edge indicates that the proposal was made within the timeout period of the contradicotry sibling.
+A checkmark on the edge indicates that the proposal was made within the timeout period of the contradictory sibling.
 A crossmark indicates that the timeout period of the contradictory sibling proposal had expired before the child proposal was introduced.
 
 The following three challenges are the only ones implied:
