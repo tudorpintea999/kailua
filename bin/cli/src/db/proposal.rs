@@ -22,6 +22,8 @@ use serde::{Deserialize, Serialize};
 use std::iter::repeat;
 use tracing::{error, info, warn};
 
+pub const ELIMINATIONS_LIMIT: u64 = 128;
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Proposal {
     // pointers
@@ -197,8 +199,9 @@ impl Proposal {
             .await
             .parentGame_;
         let parent_tournament_instance = KailuaTournament::new(parent_tournament, &provider);
+        let children = parent_tournament_instance.childCount().call().await?.count_;
         let survivor = parent_tournament_instance
-            .pruneChildren()
+            .pruneChildren(children)
             .call()
             .await?
             .survivor;
@@ -343,14 +346,39 @@ impl Proposal {
         &self,
         provider: P,
     ) -> anyhow::Result<N::ReceiptResponse> {
-        self.tournament_contract_instance(provider)
+        let contract_instance = self.tournament_contract_instance(&provider);
+        let parent_tournament: Address = contract_instance.parentGame().stall().await.parentGame_;
+        let parent_tournament_instance = KailuaTournament::new(parent_tournament, &provider);
+
+        loop {
+            let survivor = parent_tournament_instance
+                .pruneChildren(U256::from(ELIMINATIONS_LIMIT))
+                .call()
+                .await?
+                .survivor;
+            if !survivor.is_zero() {
+                break;
+            }
+
+            info!("Eliminating {ELIMINATIONS_LIMIT} opponents before resolution.");
+            parent_tournament_instance
+                .pruneChildren(U256::from(ELIMINATIONS_LIMIT))
+                .send()
+                .await
+                .context("KailuaTournament::pruneChildren (send)")?
+                .get_receipt()
+                .await
+                .context("KailuaTournament::pruneChildren (get_receipt)")?;
+        }
+
+        contract_instance
             .resolve()
             .send()
             .await
-            .context("KailuaTreasury::resolve (send)")?
+            .context("KailuaTournament::resolve (send)")?
             .get_receipt()
             .await
-            .context("KailuaTreasury::resolve (get_receipt)")
+            .context("KailuaTournament::resolve (get_receipt)")
     }
 
     pub fn has_parent(&self) -> bool {
@@ -372,17 +400,22 @@ impl Proposal {
         None
     }
 
-    pub fn wins_against(&self, proposal: &Proposal) -> bool {
-        // todo: If the survivor hasn't been challenged for as long as the timeout, declare them winner
-        match self.divergence_point(proposal) {
+    /// Returns true iff self (as contender) wins against opponent
+    pub fn wins_against(&self, opponent: &Proposal, timeout: u64) -> bool {
+        // If the survivor hasn't been challenged for as long as the timeout, declare them winner
+        if opponent.created_at - self.created_at >= timeout {
+            return true;
+        }
+        // Check provable outcome
+        match self.divergence_point(opponent) {
             // u wins if v is a duplicate
             None => true,
             // u wins if v is wrong (even if u is wrong)
             Some(point) => {
                 if point < self.io_field_elements.len() {
-                    !proposal.correct_io[point].unwrap()
+                    !opponent.correct_io[point].unwrap()
                 } else {
-                    !proposal.correct_claim.unwrap()
+                    !opponent.correct_claim.unwrap()
                 }
             }
         }
