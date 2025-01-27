@@ -36,8 +36,11 @@ abstract contract KailuaTournament is Clone, IDisputeGame {
     /// @notice The hash of the game configuration
     bytes32 internal immutable ROLLUP_CONFIG_HASH;
 
-    /// @notice The number of blocks a claim must cover
-    uint256 internal immutable PROPOSAL_BLOCK_COUNT;
+    /// @notice The number of outputs a proposal must publish
+    uint256 internal immutable PROPOSAL_OUTPUT_COUNT;
+
+    /// @notice The number of blocks each output must cover
+    uint256 internal immutable OUTPUT_BLOCK_SPAN;
 
     /// @notice The number of blobs a claim must provide
     uint256 internal immutable PROPOSAL_BLOBS;
@@ -68,9 +71,14 @@ abstract contract KailuaTournament is Clone, IDisputeGame {
         configHash_ = ROLLUP_CONFIG_HASH;
     }
 
-    /// @notice Returns the number of blocks that must be covered by this game
-    function proposalBlockCount() public view returns (uint256 proposalBlockCount_) {
-        proposalBlockCount_ = PROPOSAL_BLOCK_COUNT;
+    /// @notice Returns the number of outputs that were published with this game
+    function proposalOutputCount() public view returns (uint256 proposalOutputCount_) {
+        proposalOutputCount_ = PROPOSAL_OUTPUT_COUNT;
+    }
+
+    /// @notice Returns the number of blocks covered by each output in this game
+    function outputBlockSpan() public view returns (uint256 outputBlockSpan_) {
+        outputBlockSpan_ = OUTPUT_BLOCK_SPAN;
     }
 
     /// @notice Returns the number of blobs containing intermediate blob data
@@ -87,7 +95,8 @@ abstract contract KailuaTournament is Clone, IDisputeGame {
         IRiscZeroVerifier _verifierContract,
         bytes32 _imageId,
         bytes32 _configHash,
-        uint256 _proposalBlockCount,
+        uint256 _proposalOutputCount,
+        uint256 _outputBlockSpan,
         GameType _gameType,
         IDisputeGameFactory _disputeGameFactory
     ) {
@@ -95,9 +104,10 @@ abstract contract KailuaTournament is Clone, IDisputeGame {
         RISC_ZERO_VERIFIER = _verifierContract;
         FPVM_IMAGE_ID = _imageId;
         ROLLUP_CONFIG_HASH = _configHash;
-        PROPOSAL_BLOCK_COUNT = _proposalBlockCount;
-        PROPOSAL_BLOBS = (_proposalBlockCount / (1 << KailuaLib.FIELD_ELEMENTS_PER_BLOB_PO2))
-            + ((_proposalBlockCount % (1 << KailuaLib.FIELD_ELEMENTS_PER_BLOB_PO2)) == 0 ? 0 : 1);
+        PROPOSAL_OUTPUT_COUNT = _proposalOutputCount;
+        OUTPUT_BLOCK_SPAN = _outputBlockSpan;
+        PROPOSAL_BLOBS = (_proposalOutputCount / (1 << KailuaLib.FIELD_ELEMENTS_PER_BLOB_PO2))
+            + ((_proposalOutputCount % (1 << KailuaLib.FIELD_ELEMENTS_PER_BLOB_PO2)) == 0 ? 0 : 1);
         GAME_TYPE = _gameType;
         DISPUTE_GAME_FACTORY = _disputeGameFactory;
     }
@@ -117,7 +127,7 @@ abstract contract KailuaTournament is Clone, IDisputeGame {
     }
 
     // ------------------------------
-    // Fault proving
+    // Tournament
     // ------------------------------
 
     /// @notice The game's index in the factory
@@ -141,168 +151,11 @@ abstract contract KailuaTournament is Clone, IDisputeGame {
     /// @notice The next unprocessed opponent
     uint64 public opponentIndex;
 
-    function verifyIntermediateOutput(
-        uint64 outputNumber,
-        bytes32 outputHash,
-        bytes calldata blobCommitment,
-        bytes calldata kzgProof
-    ) external virtual returns (bool success);
+    /// @notice The next output accepted through a validity proof
+    bytes32 public validChildRootClaim;
 
-    /// @notice Proves the outcome of a tournament match
-    function prove(
-        address payoutRecipient,
-        uint64[3] calldata uvo,
-        bytes calldata encodedSeal,
-        bytes32 acceptedOutput,
-        bytes32[2] calldata proposedOutput,
-        bytes32 computedOutput,
-        bytes[][2] calldata blobCommitments,
-        bytes[][2] calldata kzgProofs
-    ) external {
-        KailuaTournament[2] memory childContracts = [children[uvo[0]], children[uvo[1]]];
-        // INVARIANT: Proofs cannot be submitted unless the children are playing.
-        if (childContracts[0].status() != GameStatus.IN_PROGRESS) {
-            revert GameNotInProgress();
-        }
-        if (childContracts[1].status() != GameStatus.IN_PROGRESS) {
-            revert GameNotInProgress();
-        }
-
-        // INVARIANT: Proofs can only be submitted once
-        if (proofStatus[uvo[0]][uvo[1]] != ProofStatus.NONE) {
-            revert AlreadyProven();
-        }
-
-        // INVARIANT: Proofs can only argue on divergence points
-        if (proposedOutput[0] == proposedOutput[1]) {
-            revert NoConflict();
-        }
-
-        bytes32 preconditionHash = bytes32(0x0);
-        // INVARIANT: Published data is equivalent until divergent blob
-        if (uvo[2] > 0) {
-            // Find the divergent blob index
-            uint256 divergentBlobIndex = KailuaLib.blobIndex(uvo[2]);
-            if (uvo[2] == PROPOSAL_BLOCK_COUNT - 1) {
-                // If the only difference is the root claim, require all blobs to be equal.
-                divergentBlobIndex = PROPOSAL_BLOBS;
-            }
-            // Ensure blob hashes are equal until divergence
-            for (uint256 i = 0; i < divergentBlobIndex; i++) {
-                if (childContracts[0].proposalBlobHashes(i).raw() != childContracts[1].proposalBlobHashes(i).raw()) {
-                    revert BlobHashMismatch(
-                        childContracts[0].proposalBlobHashes(i).raw(), childContracts[1].proposalBlobHashes(i).raw()
-                    );
-                }
-            }
-            // Update required precondition hash from proof if not at a boundary
-            if (KailuaLib.blobPosition(uvo[2]) != 0 && uvo[2] < PROPOSAL_BLOCK_COUNT - 1) {
-                preconditionHash = sha256(
-                    abi.encodePacked(
-                        childContracts[0].proposalBlobHashes(divergentBlobIndex).raw(),
-                        childContracts[1].proposalBlobHashes(divergentBlobIndex).raw()
-                    )
-                );
-            }
-        }
-
-        // Validate the common output root.
-        if (uvo[2] == 0) {
-            // The safe output is the parent game's output when proving the first output
-            require(acceptedOutput == rootClaim().raw());
-        } else {
-            // Prove common output publication
-            require(
-                childContracts[0].verifyIntermediateOutput(
-                    uvo[2] - 1, acceptedOutput, blobCommitments[0][0], kzgProofs[0][0]
-                ),
-                "bad left child acceptedOutput kzg proof"
-            );
-
-            require(
-                childContracts[1].verifyIntermediateOutput(
-                    uvo[2] - 1, acceptedOutput, blobCommitments[1][0], kzgProofs[1][0]
-                ),
-                "bad right child acceptedOutput kzg proof"
-            );
-        }
-
-        // Validate the claimed output roots.
-        if (uvo[2] == PROPOSAL_BLOCK_COUNT - 1) {
-            require(proposedOutput[0] == childContracts[0].rootClaim().raw());
-            require(proposedOutput[1] == childContracts[1].rootClaim().raw());
-        } else {
-            // Prove divergent output publication
-            require(
-                childContracts[0].verifyIntermediateOutput(
-                    uvo[2],
-                    proposedOutput[0],
-                    blobCommitments[0][blobCommitments[0].length - 1],
-                    kzgProofs[0][kzgProofs[0].length - 1]
-                ),
-                "bad left child proposedOutput kzg proof"
-            );
-
-            require(
-                childContracts[1].verifyIntermediateOutput(
-                    uvo[2],
-                    proposedOutput[1],
-                    blobCommitments[1][blobCommitments[1].length - 1],
-                    kzgProofs[1][kzgProofs[1].length - 1]
-                ),
-                "bad right child proposedOutput kzg proof"
-            );
-        }
-
-        {
-            // Construct the expected journal
-            uint64 claimBlockNumber = uint64(l2BlockNumber() + uvo[2] + 1);
-            bytes32 journalDigest = sha256(
-                abi.encodePacked(
-                    // The address of the recipient of the payout for this proof
-                    payoutRecipient,
-                    // The parent proposal's claim hash
-                    preconditionHash,
-                    // The L1 head hash containing the safe L2 chain data that may reproduce the L2 head hash.
-                    childContracts[1].l1Head().raw(),
-                    // The latest finalized L2 output root.
-                    acceptedOutput,
-                    // The L2 output root claim.
-                    computedOutput,
-                    // The L2 claim block number.
-                    claimBlockNumber,
-                    // The configuration hash for this game
-                    ROLLUP_CONFIG_HASH
-                )
-            );
-
-            // reverts on failure
-            RISC_ZERO_VERIFIER.verify(encodedSeal, FPVM_IMAGE_ID, journalDigest);
-        }
-
-        // Update proof status based on normalized hashes
-        if (KailuaLib.hashToFe(proposedOutput[0]) != KailuaLib.hashToFe(computedOutput)) {
-            // u lose
-            if (KailuaLib.hashToFe(proposedOutput[1]) != KailuaLib.hashToFe(computedOutput)) {
-                // v lose
-                proofStatus[uvo[0]][uvo[1]] = ProofStatus.U_LOSE_V_LOSE;
-            } else {
-                // v win
-                proofStatus[uvo[0]][uvo[1]] = ProofStatus.U_LOSE_V_WIN;
-            }
-        } else {
-            // u win
-            proofStatus[uvo[0]][uvo[1]] = ProofStatus.U_WIN_V_LOSE;
-        }
-
-        emit Proven(uvo[0], uvo[1], proofStatus[uvo[0]][uvo[1]]);
-
-        // Set the game's prover address
-        prover[uvo[0]][uvo[1]] = payoutRecipient;
-
-        // Set the game's proving timestamp
-        provenAt[uvo[0]][uvo[1]] = Timestamp.wrap(uint64(block.timestamp));
-    }
+    /// @notice The next blobs hash accepted through a validity proof
+    bytes32 public validChildBlobsHash;
 
     /// @notice Returns the number of children
     function childCount() external view returns (uint256 count_) {
@@ -323,7 +176,6 @@ abstract contract KailuaTournament is Clone, IDisputeGame {
 
         // Append new child to children list
         children.push(KailuaTournament(msg.sender));
-        // todo: automatically request fault proof from boundless to resolve dispute
     }
 
     /// @notice Eliminates children until at least one remains
@@ -338,6 +190,71 @@ abstract contract KailuaTournament is Clone, IDisputeGame {
             revert NotProposed();
         }
 
+        // Discover survivor using available proofs
+        if (provenAt[0][0].raw() > 0) {
+            survivor = pruneWithValidityProof(eliminationLimit);
+        } else {
+            survivor = pruneWithFaultProofs(eliminationLimit);
+        }
+    }
+
+    /// @notice Eliminates children until at least one remains if a validity proof is available
+    function pruneWithValidityProof(uint256 eliminationLimit) internal returns (KailuaTournament survivor) {
+        // Resume from last surviving contender
+        uint64 u = contenderIndex;
+        for (; u < children.length && eliminationLimit > 0; (u++, eliminationLimit--)) {
+            KailuaTournament child = children[u];
+            if (!isChildEliminated(child)) {
+                // Find the first viable proven child
+                if (child.blobsHash() == validChildBlobsHash && child.rootClaim().raw() == validChildRootClaim) {
+                    break;
+                }
+                // Eliminate faulty proposal
+                KAILUA_TREASURY.eliminate(address(child), prover[0][0]);
+            }
+        }
+
+        // Resume from last unprocessed opponent
+        uint64 v = opponentIndex;
+        if (v <= u) {
+            // Select first possible opponent
+            v = u + 1;
+        }
+
+        // Eliminate faulty opponents
+        KailuaTournament contender = children[u];
+        for (; v < children.length && eliminationLimit > 0; (v++, eliminationLimit--)) {
+            KailuaTournament opponent = children[v];
+            // If the contender hasn't been challenged for as long as the timeout, declare them winner
+            if (contender.getChallengerDuration(opponent.createdAt().raw()).raw() == 0) {
+                // Note: This implies eliminationLimit > 0
+                break;
+            }
+            // If the opponent proposer is eliminated or has the same identity, skip
+            if (canIgnoreOpponent(contender, opponent)) {
+                continue;
+            }
+            // eliminate the opponent
+            if (provenAt[0][0].raw() < provenAt[u][v].raw()) {
+                KAILUA_TREASURY.eliminate(address(opponent), prover[0][0]);
+            } else {
+                KAILUA_TREASURY.eliminate(address(opponent), prover[u][v]);
+            }
+        }
+
+        // INVARIANT: v > u && contender == children[u]
+        // Record incremental progress
+        contenderIndex = u;
+        opponentIndex = v;
+
+        // Return the sole survivor if no more matches can be played
+        if (v == children.length || eliminationLimit > 0) {
+            survivor = contender;
+        }
+    }
+
+    /// @notice Eliminates children until at least one remains if all required fault proofs are available
+    function pruneWithFaultProofs(uint256 eliminationLimit) internal returns (KailuaTournament survivor) {
         // Resume from last surviving contender
         uint64 u = contenderIndex;
         if (u == 0) {
@@ -360,34 +277,23 @@ abstract contract KailuaTournament is Clone, IDisputeGame {
         KailuaTournament contender = children[u];
         for (; v < children.length && eliminationLimit > 0; (v++, eliminationLimit--)) {
             KailuaTournament opponent = children[v];
-            // If the opponent proposer is eliminated or has the same identity, skip
-            if (canIgnoreOpponent(contender, opponent)) {
-                continue;
-            }
             // If the contender hasn't been challenged for as long as the timeout, declare them winner
             if (contender.getChallengerDuration(opponent.createdAt().raw()).raw() == 0) {
                 // Note: This implies eliminationLimit > 0
                 break;
             }
-            // If the opponent proposal is an identical twin, skip it
-            if (contender.rootClaim().raw() == opponent.rootClaim().raw()) {
-                uint64 common;
-                for (common = 0; common < PROPOSAL_BLOBS; common++) {
-                    if (contender.proposalBlobHashes(common).raw() != opponent.proposalBlobHashes(common).raw()) {
-                        break;
-                    }
-                }
-                if (common == PROPOSAL_BLOBS) {
-                    // The opponent is an unjustified duplicate proposal. Ignore it.
-                    continue;
-                }
+            // If the opponent proposer is eliminated, duplicated, or has the same identity, skip
+            if (canIgnoreOpponent(contender, opponent)) {
+                continue;
             }
             // Check if the result of playing this match is available
-            ProofStatus proven = proofStatus[u][v];
+            ProofStatus faultProven = proofStatus[u][v];
             // We must wait for more proofs if the result is unavailable
-            require(proven != ProofStatus.NONE);
+            if (faultProven == ProofStatus.NONE) {
+                revert NotProven();
+            }
             // Otherwise decide winner
-            if (proven == ProofStatus.U_LOSE_V_WIN) {
+            if (faultProven == ProofStatus.U_LOSE_V_WIN) {
                 // u was shown as faulty (beat by v)
                 // eliminate the contender
                 KAILUA_TREASURY.eliminate(address(contender), prover[u][v]);
@@ -413,6 +319,7 @@ abstract contract KailuaTournament is Clone, IDisputeGame {
         }
     }
 
+    /// @notice Returns true iff the child proposal was eliminated
     function isChildEliminated(KailuaTournament child) internal returns (bool) {
         address _proposer = KAILUA_TREASURY.proposerOf(address(child));
         uint256 eliminationRound = KAILUA_TREASURY.eliminationRound(_proposer);
@@ -423,9 +330,21 @@ abstract contract KailuaTournament is Clone, IDisputeGame {
         return true;
     }
 
+    /// @notice Returns true if the opposing proposal can be ignored by the contender
     function canIgnoreOpponent(KailuaTournament contender, KailuaTournament opponent) internal returns (bool) {
+        // If the opponent proposal is an identical twin, skip it
+        if (contender.rootClaim().raw() == opponent.rootClaim().raw()) {
+            // The equivalence of intermediate output commitments matters because one proposal
+            // may be more defensible than the other based on the io data.
+            if (contender.blobsHash() == opponent.blobsHash()) {
+                // The opponent is an unjustified duplicate proposal. Ignore it.
+                return true;
+            }
+        }
+        // Check proposer identity
         address opponentProposer = KAILUA_TREASURY.proposerOf(address(opponent));
         uint256 eliminationRound = KAILUA_TREASURY.eliminationRound(opponentProposer);
+        // The opponent is not yet eliminated
         if (eliminationRound == 0 || eliminationRound > opponent.gameIndex()) {
             address contenderProposer = KAILUA_TREASURY.proposerOf(address(contender));
             // The opponent is fighting itself
@@ -444,6 +363,393 @@ abstract contract KailuaTournament is Clone, IDisputeGame {
     /// @notice Returns the proposer address
     function proposer() public returns (address proposer_) {
         proposer_ = KAILUA_TREASURY.proposerOf(address(this));
+    }
+
+    // ------------------------------
+    // Validity proving
+    // ------------------------------
+
+    /// @notice Returns the hash of all blob hashes associated with this proposal
+    function blobsHash() public view returns (bytes32 blobsHash_) {
+        blobsHash_ = sha256(abi.encodePacked(proposalBlobHashes));
+    }
+
+    /// @notice Proves that a proposal is valid
+    function proveValidity(address payoutRecipient, uint64 childIndex, bytes calldata encodedSeal) external {
+        KailuaTournament childContract = children[childIndex];
+        // INVARIANT: Can only prove validity of unresolved proposals
+        if (childContract.status() != GameStatus.IN_PROGRESS) {
+            revert GameNotInProgress();
+        }
+
+        // INVARIANT: Proofs can only be submitted once
+        if (provenAt[0][0].raw() != 0) {
+            revert AlreadyProven();
+        }
+
+        // Store validity proof data (deleted on revert)
+        validChildRootClaim = childContract.rootClaim().raw();
+        validChildBlobsHash = childContract.blobsHash();
+
+        // Calculate the expected precondition hash if blob data is necessary for proposal
+        bytes32 preconditionHash = bytes32(0x0);
+        if (PROPOSAL_OUTPUT_COUNT > 1) {
+            preconditionHash = sha256(
+                abi.encodePacked(
+                    uint64(l2BlockNumber()),
+                    uint64(PROPOSAL_OUTPUT_COUNT),
+                    uint64(OUTPUT_BLOCK_SPAN),
+                    validChildBlobsHash
+                )
+            );
+        }
+
+        // Calculate the expected block number
+        uint64 claimBlockNumber = uint64(l2BlockNumber() + PROPOSAL_OUTPUT_COUNT * OUTPUT_BLOCK_SPAN);
+
+        // Construct the expected journal
+        bytes32 journalDigest = sha256(
+            abi.encodePacked(
+                // The address of the recipient of the payout for this proof
+                payoutRecipient,
+                // The blob equivalence precondition hash
+                preconditionHash,
+                // The L1 head hash containing the safe L2 chain data that may reproduce the L2 head hash.
+                childContract.l1Head().raw(),
+                // The accepted output
+                rootClaim().raw(),
+                // The proposed output
+                validChildRootClaim,
+                // The claim block number
+                claimBlockNumber,
+                // The rollup configuration hash
+                ROLLUP_CONFIG_HASH,
+                // The FPVM Image ID
+                FPVM_IMAGE_ID
+            )
+        );
+
+        // Revert on proof verification failure
+        RISC_ZERO_VERIFIER.verify(encodedSeal, FPVM_IMAGE_ID, journalDigest);
+
+        // Set the game's prover address
+        prover[0][0] = payoutRecipient;
+
+        // Set the proving timestamp
+        provenAt[0][0] = Timestamp.wrap(uint64(block.timestamp));
+    }
+
+    // ------------------------------
+    // Fault proving
+    // ------------------------------
+
+    /// @notice Verifies that an intermediate output was part of the proposal
+    function verifyIntermediateOutput(
+        uint64 outputNumber,
+        uint256 outputFe,
+        bytes calldata blobCommitment,
+        bytes calldata kzgProof
+    ) external virtual returns (bool success);
+
+    /// @notice Proves which parties computed a wrong output commitment in a tournament match
+    function proveOutputFault(
+        address payoutRecipient,
+        uint64[3] calldata uvo,
+        bytes calldata encodedSeal,
+        bytes32 acceptedOutputHash,
+        uint256[2] calldata proposedOutputFe,
+        bytes32 computedOutputHash,
+        bytes[][2] calldata blobCommitments,
+        bytes[][2] calldata kzgProofs
+    ) external {
+        KailuaTournament[2] memory childContracts = [children[uvo[0]], children[uvo[1]]];
+        // INVARIANT: Proofs cannot be submitted unless the children are playing.
+        if (childContracts[0].status() != GameStatus.IN_PROGRESS) {
+            revert GameNotInProgress();
+        }
+        if (childContracts[1].status() != GameStatus.IN_PROGRESS) {
+            revert GameNotInProgress();
+        }
+
+        // INVARIANT: Proofs can only be submitted once
+        if (proofStatus[uvo[0]][uvo[1]] != ProofStatus.NONE) {
+            revert AlreadyProven();
+        }
+
+        // INVARIANT: Proofs can only argue on divergence points
+        if (proposedOutputFe[0] == proposedOutputFe[1]) {
+            revert NoConflict();
+        }
+
+        // INVARIANT: Proofs can only pertain to computed outputs
+        if (uvo[2] >= PROPOSAL_OUTPUT_COUNT) {
+            revert InvalidDisputedClaimIndex();
+        }
+
+        bytes32 preconditionHash = bytes32(0x0);
+        // INVARIANT: Published data is equivalent until divergent blob
+        if (uvo[2] > 0) {
+            // Find the divergent blob index
+            uint256 divergentBlobIndex = KailuaLib.blobIndex(uvo[2]);
+            // Ensure blob hashes are equal until divergence
+            for (uint256 i = 0; i < divergentBlobIndex; i++) {
+                if (childContracts[0].proposalBlobHashes(i).raw() != childContracts[1].proposalBlobHashes(i).raw()) {
+                    revert BlobHashMismatch(
+                        childContracts[0].proposalBlobHashes(i).raw(), childContracts[1].proposalBlobHashes(i).raw()
+                    );
+                }
+            }
+            // Update required precondition hash from proof if not at a boundary
+            uint64 divergenceIndex = uint64(KailuaLib.fieldElementIndex(uvo[2]));
+            if (divergenceIndex != 0) {
+                preconditionHash = sha256(
+                    abi.encodePacked(
+                        divergenceIndex,
+                        childContracts[0].proposalBlobHashes(divergentBlobIndex).raw(),
+                        childContracts[1].proposalBlobHashes(divergentBlobIndex).raw()
+                    )
+                );
+            }
+        }
+
+        // Validate the common output root.
+        if (uvo[2] == 0) {
+            // Note: acceptedOutputHash cannot be a reduced fe because the comparison below will fail
+            // The safe output is the parent game's output when proving the first output
+            require(acceptedOutputHash == rootClaim().raw(), "bad acceptedOutput");
+        } else {
+            // Note: acceptedOutputHash cannot be a reduced fe because the journal would not be provable
+            uint256 acceptedOutputFe = KailuaLib.hashToFe(acceptedOutputHash);
+            // Prove common output publication
+            require(
+                childContracts[0].verifyIntermediateOutput(
+                    uvo[2] - 1, acceptedOutputFe, blobCommitments[0][0], kzgProofs[0][0]
+                ),
+                "bad left child acceptedOutput kzg proof"
+            );
+            require(
+                childContracts[1].verifyIntermediateOutput(
+                    uvo[2] - 1, acceptedOutputFe, blobCommitments[1][0], kzgProofs[1][0]
+                ),
+                "bad right child acceptedOutput kzg proof"
+            );
+        }
+
+        // Validate the claimed output roots.
+        if (uvo[2] == PROPOSAL_OUTPUT_COUNT - 1) {
+            // Note: proposedOutputFe[] members must be canonical points or comparisons below will fail
+            require(
+                proposedOutputFe[0] == KailuaLib.hashToFe(childContracts[0].rootClaim().raw()), "bad proposedOutput[0]"
+            );
+            require(
+                proposedOutputFe[1] == KailuaLib.hashToFe(childContracts[1].rootClaim().raw()), "bad proposedOutput[1]"
+            );
+        } else {
+            // Note: proposedOutputFe[] members must be canonical points or point eval precompile calls will fail
+            // Prove divergent output publication
+            require(
+                childContracts[0].verifyIntermediateOutput(
+                    uvo[2],
+                    proposedOutputFe[0],
+                    blobCommitments[0][blobCommitments[0].length - 1],
+                    kzgProofs[0][kzgProofs[0].length - 1]
+                ),
+                "bad left child proposedOutput kzg proof"
+            );
+
+            require(
+                childContracts[1].verifyIntermediateOutput(
+                    uvo[2],
+                    proposedOutputFe[1],
+                    blobCommitments[1][blobCommitments[1].length - 1],
+                    kzgProofs[1][kzgProofs[1].length - 1]
+                ),
+                "bad right child proposedOutput kzg proof"
+            );
+        }
+
+        // Construct the expected journal
+        {
+            uint64 claimBlockNumber = uint64(l2BlockNumber() + (uvo[2] + 1) * OUTPUT_BLOCK_SPAN);
+            bytes32 journalDigest = sha256(
+                abi.encodePacked(
+                    // The address of the recipient of the payout for this proof
+                    payoutRecipient,
+                    // The blob equivalence precondition hash
+                    preconditionHash,
+                    // The L1 head hash containing the safe L2 chain data that may reproduce the L2 head hash.
+                    childContracts[1].l1Head().raw(),
+                    // The latest finalized L2 output root.
+                    acceptedOutputHash,
+                    // The L2 output root claim.
+                    computedOutputHash,
+                    // The L2 claim block number.
+                    claimBlockNumber,
+                    // The rollup configuration hash
+                    ROLLUP_CONFIG_HASH,
+                    // The FPVM Image ID
+                    FPVM_IMAGE_ID
+                )
+            );
+
+            // reverts on failure
+            RISC_ZERO_VERIFIER.verify(encodedSeal, FPVM_IMAGE_ID, journalDigest);
+        }
+
+        resolveDispute(payoutRecipient, uvo, proposedOutputFe, KailuaLib.hashToFe(computedOutputHash));
+    }
+
+    /// @notice Proves which parties published invalid trailing data in a tournament match
+    function proveTrailFault(
+        address payoutRecipient,
+        uint64[3] calldata uvo,
+        bytes calldata encodedSeal,
+        uint256[2] calldata proposedOutputFe,
+        bytes[][2] calldata blobCommitments,
+        bytes[][2] calldata kzgProofs
+    ) external {
+        KailuaTournament[2] memory childContracts = [children[uvo[0]], children[uvo[1]]];
+        // INVARIANT: Proofs cannot be submitted unless the children are playing.
+        if (childContracts[0].status() != GameStatus.IN_PROGRESS) {
+            revert GameNotInProgress();
+        }
+        if (childContracts[1].status() != GameStatus.IN_PROGRESS) {
+            revert GameNotInProgress();
+        }
+
+        // INVARIANT: Proofs can only be submitted once
+        if (proofStatus[uvo[0]][uvo[1]] != ProofStatus.NONE) {
+            revert AlreadyProven();
+        }
+
+        // INVARIANT: Proofs can only argue on divergence points
+        if (proposedOutputFe[0] == proposedOutputFe[1]) {
+            revert NoConflict();
+        }
+
+        // INVARIANT: Proofs can only be accepted for equivalent proposals
+        if (childContracts[0].rootClaim().raw() != childContracts[1].rootClaim().raw()) {
+            revert InvalidDisputedClaimIndex();
+        }
+
+        // INVARIANT: Proofs can only pertain to trailing blob data
+        if (uvo[2] < PROPOSAL_OUTPUT_COUNT) {
+            revert InvalidDataRemainder();
+        }
+
+        // Because the root claim is considered the last published output, we shift the output offset down by one to
+        // correctly point to the target trailing zero output
+        uint64 trailOffset = uvo[2] - 1;
+
+        // INVARIANT: The trail divergence occurs at the last blob
+        if (KailuaLib.blobIndex(trailOffset) != PROPOSAL_BLOBS - 1) {
+            revert InvalidDisputedClaimIndex();
+        }
+
+        // Ensure blob hashes are equal until divergence
+        for (uint256 i = 0; i < PROPOSAL_BLOBS - 1; i++) {
+            if (childContracts[0].proposalBlobHashes(i).raw() != childContracts[1].proposalBlobHashes(i).raw()) {
+                revert BlobHashMismatch(
+                    childContracts[0].proposalBlobHashes(i).raw(), childContracts[1].proposalBlobHashes(i).raw()
+                );
+            }
+        }
+
+        // Update required precondition hash from proof
+        uint64 divergenceIndex = uint64(KailuaLib.fieldElementIndex(trailOffset));
+        require(divergenceIndex > 0, "Trail data does not exist at boundaries");
+        bytes32 preconditionHash = sha256(
+            abi.encodePacked(
+                divergenceIndex,
+                childContracts[0].proposalBlobHashes(PROPOSAL_BLOBS - 1).raw(),
+                childContracts[1].proposalBlobHashes(PROPOSAL_BLOBS - 1).raw()
+            )
+        );
+
+        // Validate the claimed output roots publications
+        {
+            // Note: proposedOutputFe[] must contain canonical field elements or point eval precompile calls will fail
+            require(
+                childContracts[0].verifyIntermediateOutput(
+                    trailOffset,
+                    proposedOutputFe[0],
+                    blobCommitments[0][blobCommitments[0].length - 1],
+                    kzgProofs[0][kzgProofs[0].length - 1]
+                ),
+                "bad left child proposedOutput kzg proof"
+            );
+
+            require(
+                childContracts[1].verifyIntermediateOutput(
+                    trailOffset,
+                    proposedOutputFe[1],
+                    blobCommitments[1][blobCommitments[1].length - 1],
+                    kzgProofs[1][kzgProofs[1].length - 1]
+                ),
+                "bad right child proposedOutput kzg proof"
+            );
+        }
+
+        // Construct the expected precondition-only journal
+        {
+            bytes32 journalDigest = sha256(
+                abi.encodePacked(
+                    // The address of the recipient of the payout for this proof
+                    payoutRecipient,
+                    // The blob equivalence precondition hash
+                    preconditionHash,
+                    // The L1 head hash containing the safe L2 chain data that may reproduce the L2 head hash.
+                    l1Head().raw(),
+                    // The latest finalized L2 output root.
+                    rootClaim().raw(),
+                    // The L2 output root claim.
+                    rootClaim().raw(),
+                    // The L2 claim block number.
+                    uint64(l2BlockNumber()),
+                    // The rollup configuration hash
+                    ROLLUP_CONFIG_HASH,
+                    // The FPVM Image ID
+                    FPVM_IMAGE_ID
+                )
+            );
+
+            // reverts on failure
+            RISC_ZERO_VERIFIER.verify(encodedSeal, FPVM_IMAGE_ID, journalDigest);
+        }
+
+        // Update dispute status based on trailing data
+        resolveDispute(payoutRecipient, uvo, proposedOutputFe, 0x0);
+    }
+
+    function resolveDispute(
+        address payoutRecipient,
+        uint64[3] calldata uvo,
+        uint256[2] calldata proposedOutputFe,
+        uint256 expectedOutputFe
+    ) internal {
+        // Update proof status based on expected output
+        if (proposedOutputFe[0] != expectedOutputFe) {
+            // u lose
+            if (proposedOutputFe[1] != expectedOutputFe) {
+                // v lose
+                proofStatus[uvo[0]][uvo[1]] = ProofStatus.U_LOSE_V_LOSE;
+            } else {
+                // v win
+                proofStatus[uvo[0]][uvo[1]] = ProofStatus.U_LOSE_V_WIN;
+            }
+        } else {
+            // u win
+            proofStatus[uvo[0]][uvo[1]] = ProofStatus.U_WIN_V_LOSE;
+        }
+
+        // Announce proof status
+        emit Proven(uvo[0], uvo[1], proofStatus[uvo[0]][uvo[1]]);
+
+        // Set the game's prover address
+        prover[uvo[0]][uvo[1]] = payoutRecipient;
+
+        // Set the game's proving timestamp
+        provenAt[uvo[0]][uvo[1]] = Timestamp.wrap(uint64(block.timestamp));
     }
 
     // ------------------------------

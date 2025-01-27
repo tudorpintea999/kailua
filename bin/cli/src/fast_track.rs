@@ -12,9 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::providers::optimism::OpNodeProvider;
 use crate::stall::Stall;
-use crate::{BN254_CONTROL_ID, CONTROL_ROOT, KAILUA_GAME_TYPE, SET_BUILDER_ID};
+use crate::KAILUA_GAME_TYPE;
 use alloy::network::{EthereumWallet, Network, TxSigner};
 use alloy::primitives::{Address, Bytes, Uint, U256};
 use alloy::providers::{Provider, ProviderBuilder};
@@ -23,9 +22,10 @@ use alloy::sol_types::SolValue;
 use alloy::transports::Transport;
 use anyhow::{bail, Context};
 use kailua_build::KAILUA_FPVM_ID;
-use kailua_common::client::config_hash;
+use kailua_client::provider::OpNodeProvider;
+use kailua_common::config::{config_hash, BN254_CONTROL_ID, CONTROL_ROOT, SET_BUILDER_ID};
 use kailua_contracts::*;
-use kailua_host::fetch_rollup_config;
+use kailua_host::config::fetch_rollup_config;
 use std::process::exit;
 use std::str::FromStr;
 use tracing::{error, info};
@@ -48,9 +48,12 @@ pub struct FastTrackArgs {
     /// The l2 block number to start sequencing since
     #[clap(long, env)]
     pub starting_block_number: u64,
-    /// The number of blocks that a proposal must cover
+    /// The number of outputs that a proposal must publish
     #[clap(long, env)]
-    pub proposal_block_span: u64,
+    pub proposal_output_count: u64,
+    /// The number of blocks each output must cover
+    #[clap(long, env)]
+    pub output_block_span: u64,
     /// The time gap before a proposal can be made
     #[clap(long, env)]
     pub proposal_time_gap: u64,
@@ -151,7 +154,8 @@ pub async fn fast_track(args: FastTrackArgs) -> anyhow::Result<()> {
         verifier_contract_address,
         bytemuck::cast::<[u32; 8], [u8; 32]>(KAILUA_FPVM_ID).into(),
         rollup_config_hash.into(),
-        Uint::from(args.proposal_block_span),
+        Uint::from(args.proposal_output_count),
+        Uint::from(args.output_block_span),
         KAILUA_GAME_TYPE,
         dgf_address,
     )
@@ -258,7 +262,8 @@ pub async fn fast_track(args: FastTrackArgs) -> anyhow::Result<()> {
         verifier_contract_address,
         bytemuck::cast::<[u32; 8], [u8; 32]>(KAILUA_FPVM_ID).into(),
         rollup_config_hash.into(),
-        Uint::from(args.proposal_block_span),
+        Uint::from(args.proposal_output_count),
+        Uint::from(args.output_block_span),
         KAILUA_GAME_TYPE,
         dgf_address,
         U256::from(config.genesis.l2_time),

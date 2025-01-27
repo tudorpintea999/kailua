@@ -1,7 +1,14 @@
 [package]
 name = "kailua-common"
 version = "0.1.0"
-edition = "2021"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
 anyhow.workspace = true
@@ -16,21 +23,27 @@ pot.workspace = true
 rkyv.workspace = true
 spin.workspace = true
 
-alloy-consensus = { workspace = true, features = ["serde"] }
+alloy-consensus.workspace = true
 alloy-eips.workspace = true
-alloy-primitives = { workspace = true, features = ["map-hashbrown"] }
+alloy-rlp.workspace = true
+alloy-primitives.workspace = true
 alloy-rpc-types-beacon.workspace = true
-op-alloy-consensus = { workspace = true, features = ["serde"] }
-op-alloy-genesis = { workspace = true, features = ["serde"] }
-op-alloy-protocol = { workspace = true, features = ["serde"] }
+
+maili-genesis.workspace = true
+maili-protocol.workspace = true
+
+op-alloy-consensus.workspace = true
+op-alloy-rpc-types-engine.workspace = true
 
 kona-driver.workspace = true
 kona-derive.workspace = true
 kona-executor.workspace = true
 kona-mpt.workspace = true
-kona-preimage = { workspace = true, features = ["serde"] }
+kona-preimage.workspace = true
 kona-proof.workspace = true
 
+risc0-aggregation.workspace = true
+risc0-groth16.workspace = true
 risc0-zkvm.workspace = true
 risc0-zkvm-platform.workspace = true
 

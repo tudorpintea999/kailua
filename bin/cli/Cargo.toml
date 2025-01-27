@@ -1,7 +1,14 @@
 [package]
 name = "kailua-cli"
 version = "0.1.0"
-edition = "2021"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
 anyhow.workspace = true
@@ -22,7 +29,8 @@ tracing.workspace = true
 
 alloy = { workspace = true, features = ["full", "kzg"] }
 alloy-rpc-types-beacon.workspace = true
-op-alloy-protocol.workspace = true
+
+maili-protocol.workspace = true
 
 kailua-build.workspace = true
 kailua-client.workspace = true
@@ -34,8 +42,6 @@ kona-host.workspace = true
 kona-derive = { workspace = true }
 
 bonsai-sdk.workspace = true
-boundless-market.workspace = true
-risc0-aggregation.workspace = true
 risc0-ethereum-contracts.workspace = true
 risc0-zkvm.workspace = true
 

@@ -17,8 +17,7 @@ pub mod proposal;
 pub mod state;
 pub mod treasury;
 
-use crate::providers::beacon::BlobProvider;
-use crate::providers::optimism::OpNodeProvider;
+use crate::provider::BlobProvider;
 use crate::stall::Stall;
 use crate::KAILUA_GAME_TYPE;
 use alloy::network::Network;
@@ -27,6 +26,7 @@ use alloy::providers::Provider;
 use alloy::transports::Transport;
 use anyhow::{bail, Context};
 use config::Config;
+use kailua_client::provider::OpNodeProvider;
 use kailua_contracts::{
     IDisputeGameFactory::{gameAtIndexReturn, IDisputeGameFactoryInstance},
     *,
@@ -287,57 +287,56 @@ impl KailuaDB {
 
     pub fn determine_tournament_participation(
         &mut self,
-        proposal: &mut Proposal,
+        opponent: &mut Proposal,
     ) -> anyhow::Result<bool> {
-        if !proposal.has_parent() {
+        if !opponent.has_parent() {
             return Ok(true);
         }
 
-        let mut parent = self.get_local_proposal(&proposal.parent).unwrap().clone();
-        // Ignore self-conflict
-        if parent
+        let mut parent = self.get_local_proposal(&opponent.parent).unwrap().clone();
+        // Ignore skipped proposals
+        let contender = parent
             .survivor
-            .map(|contender| {
-                self.get_local_proposal(&contender).unwrap().proposer == proposal.proposer
-            })
-            .unwrap_or_default()
-        {
-            return Ok(false);
+            .map(|index| self.get_local_proposal(&index).unwrap());
+        if let Some(contender) = contender.as_ref() {
+            // Ignore self-conflict
+            if contender.proposer == opponent.proposer {
+                return Ok(false);
+            }
+            // Ignore duplicate proposals
+            if contender.divergence_point(opponent).is_none() {
+                return Ok(false);
+            }
         }
         // Participate in tournament only if this is a correct or first bad proposal
-        if self.was_proposer_eliminated_before(proposal) {
+        if self.was_proposer_eliminated_before(opponent) {
             return Ok(false);
         }
-        // Skip non-canonical tournaments
+        // Skip proposals to extend non-canonical tournaments
         if !parent.canonical.unwrap_or_default() {
             return Ok(false);
         }
         // Update the contender
-        proposal.contender = parent.survivor;
+        opponent.contender = parent.survivor;
         // Append child to parent
-        if !parent.append_child(proposal.index) {
+        if !parent.append_child(opponent.index) {
             warn!(
                 "Attempted out of order child {} insertion into parent {} ",
-                proposal.index, parent.index
+                opponent.index, parent.index
             );
         }
-        // Determine survivorship
-        if parent
-            .survivor
-            .map(|contender| {
-                !self
-                    .get_local_proposal(&contender)
-                    .unwrap()
-                    .wins_against(proposal, self.config.timeout)
-            })
+        // Determine if opponent is the next survivor
+        if contender
+            .as_ref()
+            .map(|contender| !contender.wins_against(opponent, self.config.timeout))
             .unwrap_or(true)
         {
             // If the old survivor (if any) is defeated,
             // set this proposal as the new survivor
-            parent.survivor = Some(proposal.index);
+            parent.survivor = Some(opponent.index);
         }
         // Commit updated parent data
-        self.set_local_proposal(proposal.parent, &parent)?;
+        self.set_local_proposal(opponent.parent, &parent)?;
         Ok(true)
     }
 

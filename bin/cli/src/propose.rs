@@ -12,24 +12,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::db::proposal::Proposal;
+use crate::db::proposal::{Proposal, ELIMINATIONS_LIMIT};
 use crate::db::KailuaDB;
-use crate::providers::beacon::BlobProvider;
-use crate::providers::optimism::OpNodeProvider;
+use crate::provider::BlobProvider;
 use crate::{stall::Stall, CoreArgs, KAILUA_GAME_TYPE};
 use alloy::consensus::BlockHeader;
 use alloy::eips::{BlockId, BlockNumberOrTag};
 use alloy::network::primitives::BlockTransactionsKind;
 use alloy::network::{BlockResponse, EthereumWallet};
-use alloy::primitives::Bytes;
+use alloy::primitives::{Bytes, U256};
 use alloy::providers::{Provider, ProviderBuilder};
 use alloy::signers::local::LocalSigner;
 use alloy::sol_types::SolValue;
 use anyhow::Context;
+use kailua_client::provider::OpNodeProvider;
 use kailua_common::blobs::hash_to_fe;
-use kailua_common::client::config_hash;
+use kailua_common::config::config_hash;
 use kailua_contracts::*;
-use kailua_host::fetch_rollup_config;
+use kailua_host::config::fetch_rollup_config;
 use std::path::PathBuf;
 use std::process::exit;
 use std::str::FromStr;
@@ -116,16 +116,28 @@ pub async fn propose(args: ProposeArgs, data_dir: PathBuf) -> anyhow::Result<()>
         // Wait for new data on every iteration
         sleep(Duration::from_secs(1)).await;
         // fetch latest games
+        info!("Retrieving latest proposals..");
         kailua_db
             .load_proposals(&dispute_game_factory, &op_node_provider, &cl_node_provider)
             .await
             .context("load_proposals")?;
+
+        // abort on failure
+        if let Some(elimination_index) = kailua_db.state.eliminations.get(&proposer_address) {
+            anyhow::bail!(
+                "Proposer {proposer_address} honesty compromised at proposal {elimination_index}."
+            );
+        }
 
         // Stack unresolved ancestors
         let mut unresolved_proposal_indices = kailua_db
             .unresolved_canonical_proposals(&proposer_provider)
             .await?;
         // Resolve in reverse order
+        info!(
+            "Found {} unresolved proposals.",
+            unresolved_proposal_indices.len()
+        );
         if !unresolved_proposal_indices.is_empty() {
             info!(
                 "Attempting to resolve {} ancestors.",
@@ -138,11 +150,7 @@ pub async fn propose(args: ProposeArgs, data_dir: PathBuf) -> anyhow::Result<()>
             let parent_contract = parent.tournament_contract_instance(&proposer_provider);
             info!("Parent Tournament Children:");
             for i in 0..u64::MAX {
-                if let Ok(res) = parent_contract
-                    .children(alloy::primitives::U256::from(i))
-                    .call()
-                    .await
-                {
+                if let Ok(res) = parent_contract.children(U256::from(i)).call().await {
                     info!("{}", res._0);
                 } else {
                     break;
@@ -160,24 +168,60 @@ pub async fn propose(args: ProposeArgs, data_dir: PathBuf) -> anyhow::Result<()>
                 continue;
             }
 
-            // Check if claim won in tournament
-            if proposal.has_parent()
-                && !proposal
-                    .fetch_parent_tournament_survivor_status(&proposer_provider)
-                    .await
-                    .unwrap_or_default()
-                    .unwrap_or_default()
-            {
-                info!("Waiting for more proofs to resolve proposer as survivor");
-                break;
-            }
-
-            // Check for timeout
+            // Check for timeout and fast-forward status
             let challenger_duration = proposal
                 .fetch_current_challenger_duration(&proposer_provider)
                 .await?;
-            if challenger_duration > 0 {
+            let is_validity_proven = parent
+                .fetch_is_successor_validity_proven(&proposer_provider)
+                .await?;
+            if !is_validity_proven && challenger_duration > 0 {
                 info!("Waiting for {challenger_duration} more seconds before resolution.");
+                break;
+            }
+
+            // Check if can prune next set of children in parent tournament
+            if proposal.has_parent() {
+                let can_resolve = loop {
+                    let Ok(result) = parent_contract
+                        .pruneChildren(U256::from(ELIMINATIONS_LIMIT))
+                        .call()
+                        .await
+                    else {
+                        break false;
+                    };
+
+                    // Final prune will be during resolution
+                    if !result.survivor.is_zero() {
+                        break true;
+                    }
+
+                    // Prune next set of children
+                    info!("Eliminating {ELIMINATIONS_LIMIT} opponents before resolution.");
+                    parent_contract
+                        .pruneChildren(U256::from(ELIMINATIONS_LIMIT))
+                        .send()
+                        .await
+                        .context("KailuaTournament::pruneChildren (send)")?
+                        .get_receipt()
+                        .await
+                        .context("KailuaTournament::pruneChildren (get_receipt)")?;
+                };
+                // Some disputes are still unresolved
+                if !can_resolve {
+                    info!("Waiting for more proofs to resolve proposer as survivor");
+                    break;
+                }
+            }
+
+            // Check if claim won in tournament
+            if !proposal
+                .fetch_parent_tournament_survivor_status(&proposer_provider)
+                .await
+                .unwrap_or_default()
+                .unwrap_or_default()
+            {
+                error!("Failed to determine proposal as next survivor.");
                 break;
             }
 
@@ -203,23 +247,27 @@ pub async fn propose(args: ProposeArgs, data_dir: PathBuf) -> anyhow::Result<()>
         let output_block_number = sync_status["safe_l2"]["number"].as_u64().unwrap();
         if output_block_number < canonical_tip.output_block_number {
             warn!(
-                "op-node is still {} blocks behind safe l2 head.",
+                "op-node is still {} blocks behind latest canonical proposal.",
                 canonical_tip.output_block_number - output_block_number
             );
             continue;
         } else if output_block_number - canonical_tip.output_block_number
-            < kailua_db.config.proposal_block_count
+            < kailua_db.config.blocks_per_proposal()
         {
             info!(
                 "Waiting for safe l2 head to advance by {} more blocks before submitting proposal.",
-                kailua_db.config.proposal_block_count
+                kailua_db.config.blocks_per_proposal()
                     - (output_block_number - canonical_tip.output_block_number)
             );
             continue;
         }
+        info!(
+            "Candidate proposal of {} blocks is available.",
+            kailua_db.config.blocks_per_proposal()
+        );
         // Wait for L1 timestamp to advance beyond the safety gap for proposals
         let proposed_block_number =
-            canonical_tip.output_block_number + kailua_db.config.proposal_block_count;
+            canonical_tip.output_block_number + kailua_db.config.blocks_per_proposal();
         let chain_time = proposer_provider
             .get_block(
                 BlockId::Number(BlockNumberOrTag::Latest),
@@ -246,13 +294,22 @@ pub async fn propose(args: ProposeArgs, data_dir: PathBuf) -> anyhow::Result<()>
             .await?;
         // Prepare intermediate outputs
         let mut io_field_elements = vec![];
-        let first_io_number = canonical_tip.output_block_number + 1;
-        for i in first_io_number..proposed_block_number {
-            let output = op_node_provider.output_at_block(i).await?;
-            io_field_elements.push(hash_to_fe(output));
+        for i in 1..kailua_db.config.proposal_output_count {
+            let io_block_number =
+                canonical_tip.output_block_number + i * kailua_db.config.output_block_span;
+            let Ok(output_hash) = op_node_provider.output_at_block(io_block_number).await else {
+                error!("Could not retrieve intermediate output at block #{io_block_number}.");
+                break;
+            };
+            io_field_elements.push(hash_to_fe(output_hash));
+        }
+        if io_field_elements.len() as u64 != kailua_db.config.proposal_output_count - 1 {
+            error!("Could not gather all necessary intermediate outputs.");
+            continue;
         }
         let sidecar = Proposal::create_sidecar(&io_field_elements)?;
 
+        info!("Candidate proposal prepared");
         // Calculate required duplication counter
         let mut dupe_counter = 0u64;
         let unique_extra_data = loop {
@@ -275,6 +332,7 @@ pub async fn propose(args: ProposeArgs, data_dir: PathBuf) -> anyhow::Result<()>
                 .proxy_;
             if dupe_game_address.is_zero() {
                 // proposal was not made before using this dupe counter
+                info!("Dupe counter {dupe_counter} available.");
                 break Some(extra_data);
             }
             // fetch proposal from local data
@@ -284,16 +342,22 @@ pub async fn propose(args: ProposeArgs, data_dir: PathBuf) -> anyhow::Result<()>
                 .await
                 ._0
                 .to();
-            let Some(dupe_proposal) = kailua_db.get_local_proposal(&dupe_game_index) else {
+            if dupe_game_index >= kailua_db.state.next_factory_index {
                 // we need to fetch this proposal's data
-                break None;
-            };
-            // check if proposal was made incorrectly or by an already eliminated player
-            if dupe_proposal.is_correct().unwrap_or_default()
-                && !kailua_db.was_proposer_eliminated_before(&dupe_proposal)
-            {
+                warn!("Duplicate proposal data not yet available.");
                 break None;
             }
+            if let Some(dupe_proposal) = kailua_db.get_local_proposal(&dupe_game_index) {
+                // check if proposal was made incorrectly or by an already eliminated player
+                if dupe_proposal.is_correct().unwrap_or_default()
+                    && !kailua_db.was_proposer_eliminated_before(&dupe_proposal)
+                {
+                    info!("Correct proposal was already made honestly.");
+                    break None;
+                }
+            };
+            // this invalid proposal will not participate in the tournament
+            warn!("Incrementing duplication counter");
             // increment counter
             dupe_counter += 1;
         };

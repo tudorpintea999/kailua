@@ -27,6 +27,7 @@ enum ProofStatus {
     U_WIN_V_LOSE
 }
 
+// 0xd36871fd
 /// @notice Thrown when a blacklisted address attempts to interact with the game.
 error Blacklisted(address source, address expected);
 
@@ -62,7 +63,7 @@ error UnchallengedGame();
 /// @notice Thrown when a proving fault for an unchallenged output
 error UnchallengedOutput();
 
-// 0xf1082a93
+// 0x5e22e582
 /// @notice Thrown when resolving a faulty proposal
 error ProvenFaulty();
 
@@ -86,7 +87,7 @@ error BlockCountExceeded(uint256 l2BlockNumber, uint256 rootBlockNumber);
 /// @notice Thrown when an incorrect blob hash is provided
 error BlobHashMismatch(bytes32 found, bytes32 expected);
 
-// 0x6dafbcfa
+// 0x1434391f
 /// @notice Thrown when a blob hash is missing
 error BlobHashMissing(uint256 index, uint256 count);
 
@@ -121,11 +122,14 @@ interface IKailuaTreasury {
     /// @notice Returns the proposer of a game
     function proposerOf(address game) external returns (address);
 
-    /// @notice Eliminates a child's proposer and transfers their bond to the prover
+    /// @notice Eliminates a child's proposer and allocates their bond to the prover
     function eliminate(address child, address prover) external;
 
     /// @notice Returns true iff a proposal is currently being submitted
     function isProposing() external returns (bool);
+
+    /// @notice Releases the proposer from being bonded by the calling proposal
+    function releaseProposer() external;
 }
 
 library KailuaLib {
@@ -150,12 +154,12 @@ library KailuaLib {
     /// @notice The po2 for the number of field elements in a single blob
     uint256 internal constant FIELD_ELEMENTS_PER_BLOB_PO2 = 12;
 
-    function blobIndex(uint256 element) internal pure returns (uint256 index) {
-        index = element / (1 << FIELD_ELEMENTS_PER_BLOB_PO2);
+    function blobIndex(uint256 outputOffset) internal pure returns (uint256 index) {
+        index = outputOffset / (1 << FIELD_ELEMENTS_PER_BLOB_PO2);
     }
 
-    function blobPosition(uint256 element) internal pure returns (uint256 position) {
-        position = element % (1 << FIELD_ELEMENTS_PER_BLOB_PO2);
+    function fieldElementIndex(uint256 outputOffset) internal pure returns (uint256 position) {
+        position = outputOffset % (1 << FIELD_ELEMENTS_PER_BLOB_PO2);
     }
 
     function versionedKZGHash(bytes calldata blobCommitment) internal pure returns (bytes32 hash) {
@@ -163,26 +167,26 @@ library KailuaLib {
         hash = ((sha256(blobCommitment) << 8) >> 8) | KZG_COMMITMENT_VERSION;
     }
 
-    function hashToFe(bytes32 hash) internal pure returns (bytes32 fe) {
-        fe = ((hash << 2) >> 2);
+    function hashToFe(bytes32 hash) internal pure returns (uint256 fe) {
+        fe = uint256(hash) % BLS_MODULUS;
     }
 
     function verifyKZGBlobProof(
-        bytes32 versionedHash,
+        bytes32 versionedBlobHash,
         uint32 index,
-        bytes32 value,
+        uint256 value,
         bytes calldata blobCommitment,
         bytes calldata proof
     ) internal returns (bool success) {
         uint256 rootOfUnity = modExp(reverseBits(index));
-
-        bytes memory kzgCallData = abi.encodePacked(
-            versionedHash, // proposalBlobHash().raw(),
-            rootOfUnity,
-            hashToFe(value),
-            blobCommitment,
-            proof
-        );
+        // Byte range	Name	        Description
+        // [0:32]	    versioned_hash	Reference to a blob in the execution layer.
+        // [32:64]	    x	            x-coordinate at which the blob is being evaluated.
+        // [64:96]	    y	            y-coordinate at which the blob is being evaluated.
+        // [96:144]	    commitment	    Commitment to the blob being evaluated.
+        // [144:192]	proof	        Proof associated with the commitment.
+        bytes memory kzgCallData = abi.encodePacked(versionedBlobHash, rootOfUnity, value, blobCommitment, proof);
+        // The precompile will reject non-canonical field elements (i.e. value must be less than BLS_MODULUS).
         (success,) = KZG.call(kzgCallData);
     }
 

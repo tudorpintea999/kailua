@@ -14,19 +14,20 @@
 
 use crate::db::proposal::Proposal;
 use crate::propose::ProposeArgs;
-use crate::providers::optimism::OpNodeProvider;
 use crate::stall::Stall;
 use crate::KAILUA_GAME_TYPE;
+use alloy::eips::eip4844::FIELD_ELEMENTS_PER_BLOB;
 use alloy::network::EthereumWallet;
 use alloy::primitives::{Bytes, B256, U256};
 use alloy::providers::ProviderBuilder;
 use alloy::signers::local::LocalSigner;
 use alloy::sol_types::SolValue;
 use anyhow::Context;
+use kailua_client::provider::OpNodeProvider;
 use kailua_common::blobs::hash_to_fe;
-use kailua_common::client::config_hash;
+use kailua_common::config::config_hash;
 use kailua_contracts::*;
-use kailua_host::fetch_rollup_config;
+use kailua_host::config::fetch_rollup_config;
 use std::str::FromStr;
 use tracing::{error, info};
 
@@ -93,12 +94,19 @@ pub async fn fault(args: FaultArgs) -> anyhow::Result<()> {
     let kailua_treasury_instance = KailuaTreasury::new(kailua_treasury_address, &tester_provider);
 
     // load constants
-    let proposal_block_count: u64 = kailua_game_implementation
-        .proposalBlockCount()
+    let proposal_output_count: u64 = kailua_game_implementation
+        .proposalOutputCount()
         .stall()
         .await
-        .proposalBlockCount_
+        .proposalOutputCount_
         .to();
+    let output_block_span: u64 = kailua_game_implementation
+        .outputBlockSpan()
+        .stall()
+        .await
+        .outputBlockSpan_
+        .to();
+    let proposal_block_count = proposal_output_count * output_block_span;
 
     // get proposal parent
     let games_count = dispute_game_factory.gameCount().stall().await.gameCount_;
@@ -115,7 +123,7 @@ pub async fn fault(args: FaultArgs) -> anyhow::Result<()> {
         .l2BlockNumber_
         .to();
     // Prepare faulty proposal
-    let faulty_block_number = parent_block_number + args.fault_offset;
+    let faulty_block_number = parent_block_number + args.fault_offset * output_block_span;
     let faulty_root_claim = B256::from(games_count.to_be_bytes());
     // Prepare remainder of proposal
     let proposed_block_number = parent_block_number + proposal_block_count;
@@ -129,14 +137,20 @@ pub async fn fault(args: FaultArgs) -> anyhow::Result<()> {
 
     // Prepare intermediate outputs
     let mut io_field_elements = vec![];
-    let first_io_number = parent_block_number + 1;
-    for i in first_io_number..proposed_block_number {
-        let output = if i == faulty_block_number {
+    let is_output_fault = faulty_block_number > proposal_block_count;
+    let normalized_fault_block_number =
+        faulty_block_number - (!is_output_fault as u64) * output_block_span;
+    for i in 1..FIELD_ELEMENTS_PER_BLOB {
+        let io_block_number = parent_block_number + i * output_block_span;
+
+        let output_hash = if io_block_number == normalized_fault_block_number {
             faulty_root_claim
+        } else if io_block_number < proposal_block_count {
+            op_node_provider.output_at_block(io_block_number).await?
         } else {
-            op_node_provider.output_at_block(i).await?
+            B256::ZERO
         };
-        io_field_elements.push(hash_to_fe(output));
+        io_field_elements.push(hash_to_fe(output_hash));
     }
     let sidecar = Proposal::create_sidecar(&io_field_elements)?;
 

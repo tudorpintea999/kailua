@@ -16,7 +16,7 @@ If you install them in parallel, GitHub may throttle you, leading to a docker bu
 
 ### CLI Binary
 ```shell
-cargo install kailua-cli --path bin/cli
+cargo install kailua-cli --path bin/cli --locked
 ```
 
 ### Prover Binary
@@ -27,7 +27,7 @@ To do this, add `-F prove` to the command below.
 ```
 
 ```shell
-cargo install kailua-host --path bin/host
+cargo install kailua-host --path bin/host --locked
 ```
 
 
@@ -42,8 +42,8 @@ kailua-cli config --op-node-url [YOUR_OP_NODE_URL] --op-geth-url [YOUR_OP_GETH_U
 
 Running the above command against the respective op-sepolia endpoints should produce the following output:
 ```
-RISC0_VERSION: 1.2.0
-FPVM_IMAGE_ID: 0x49D33C8E46E9FBDB4B3BEBC10473FDC47C4D5E8190CBEECB1B3B2A177149EA6F
+RISC0_VERSION: 1.2.1
+FPVM_IMAGE_ID: 0x6882F4878D98ECD7483BC588B766C17DA329B1B1699631C4D0AFC9897A9A8A81
 CONTROL_ROOT: 0x8CDAD9242664BE3112ABA377C5425A4DF735EB1C6966472B561D2855932C0469
 CONTROL_ID: 0x04446E66D300EB7FB45C9726BB53C793DDA407A62E9601618BB43C5C14657AC0
 SET_BUILDER_ID: 0x744CCA56CDE6933DEA72752C78B4A6CA894ED620E8AF6437AB05FAD53BCEC40A

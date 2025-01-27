@@ -36,9 +36,10 @@ devnet-upgrade target="debug" verbosity="" l1_rpc="http://127.0.0.1:8545" l2_rpc
       --op-geth-url {{l2_rpc}} \
       --op-node-url {{rollup_node_rpc}} \
       --starting-block-number 0 \
-      --proposal-block-span 60 \
+      --proposal-output-count 20 \
+      --output-block-span 3 \
       --proposal-time-gap 30 \
-      --challenge-timeout 300 \
+      --challenge-timeout 3600 \
       --collateral-amount 1 \
       --deployer-key {{deployer}} \
       --owner-key {{owner}} \
@@ -69,8 +70,9 @@ devnet-fault offset parent target="debug" verbosity="" l1_rpc="http://127.0.0.1:
       --fault-parent {{parent}} \
       {{verbosity}}
 
-devnet-validate target="debug" verbosity="" l1_rpc="http://127.0.0.1:8545" l1_beacon_rpc="http://127.0.0.1:5052" l2_rpc="http://127.0.0.1:9545" rollup_node_rpc="http://127.0.0.1:7545" data_dir=".localtestdata/validate" validator="0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba":
+devnet-validate fastforward="0" target="debug" verbosity="" l1_rpc="http://127.0.0.1:8545" l1_beacon_rpc="http://127.0.0.1:5052" l2_rpc="http://127.0.0.1:9545" rollup_node_rpc="http://127.0.0.1:7545" data_dir=".localtestdata/validate" validator="0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba":
   ./target/{{target}}/kailua-cli validate \
+      --fast-forward-target {{fastforward}} \
       --eth-rpc-url {{l1_rpc}} \
       --beacon-rpc-url {{l1_beacon_rpc}} \
       --op-geth-url {{l2_rpc}} \
@@ -122,21 +124,20 @@ prove block_number block_count l1_rpc l1_beacon_rpc l2_rpc rollup_node_rpc data 
   AGREED_L2_HEAD=$(cast block --rpc-url $L2_NODE_ADDRESS $((L2_BLOCK_NUMBER - 1)) -j | jq -r .hash)
 
   echo "Running host program with zk client program..."
-  ./target/{{target}}/kailua-host \
+  ./target/{{target}}/kailua-host {{verbosity}} \
+    --op-node-address $OP_NODE_ADDRESS \
+    single \
     --l1-head $L1_HEAD \
     --agreed-l2-head-hash $AGREED_L2_HEAD \
     --agreed-l2-output-root $AGREED_L2_OUTPUT_ROOT \
     --claimed-l2-output-root $CLAIMED_L2_OUTPUT_ROOT \
     --claimed-l2-block-number $CLAIMED_L2_BLOCK_NUMBER \
-    --block-count {{block_count}} \
     --l2-chain-id $L2_CHAIN_ID \
     --l1-node-address $L1_NODE_ADDRESS \
     --l1-beacon-address $L1_BEACON_ADDRESS \
     --l2-node-address $L2_NODE_ADDRESS \
-    --op-node-address $OP_NODE_ADDRESS \
     --data-dir {{data}} \
-    --native \
-    {{verbosity}}
+    --native
 
 # Show the input args for proving
 query block_number l1_rpc l1_beacon_rpc l2_rpc rollup_node_rpc:
@@ -165,7 +166,7 @@ query block_number l1_rpc l1_beacon_rpc l2_rpc rollup_node_rpc:
 
 prove-offline block_number l2_claim l2_output_root l2_head l1_head l2_chain_id data target="release" verbosity="":
   echo "Running host program with zk client program..."
-  ./target/{{target}}/kailua-host \
+  ./target/{{target}}/kailua-host single \
     --l1-head {{l1_head}} \
     --agreed-l2-head-hash {{l2_head}} \
     --claimed-l2-output-root {{l2_claim}} \
