@@ -19,7 +19,7 @@ use kailua_client::oracle::{HINT_WRITER, ORACLE_READER};
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args = KailuaClientArgs::parse();
-    kona_host::init_tracing_subscriber(args.kailua_verbosity)?;
+    kona_host::cli::init_tracing_subscriber(args.kailua_verbosity)?;
     let precondition_validation_data_hash =
         args.precondition_validation_data_hash.unwrap_or_default();
     let payout_recipient_address = args.payout_recipient_address.unwrap_or_default();
@@ -30,10 +30,12 @@ async fn main() -> anyhow::Result<()> {
         HINT_WRITER,
         payout_recipient_address,
         precondition_validation_data_hash,
-        vec![], // todo: read stitched boot info data
+        vec![],
         vec![],
         true,
         true,
+        args.segment_limit,
+        args.max_witness_size,
     )
     .await?;
 

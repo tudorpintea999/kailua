@@ -10,7 +10,7 @@ build +ARGS="--release -F prove":
 clippy:
   RISC0_SKIP_BUILD=1 cargo clippy --workspace --all --all-features --all-targets -- -D warnings
 
-devnet-install:
+devnet-fetch:
   git clone --depth 1 --branch v1.9.1 --recursive https://github.com/ethereum-optimism/optimism.git
 
 devnet-build +ARGS="-F devnet -F prove": (build ARGS)
@@ -28,9 +28,10 @@ devnet-config target="debug" verbosity="" l1_rpc="http://127.0.0.1:8545" l2_rpc=
   ./target/{{target}}/kailua-cli config \
       --eth-rpc-url {{l1_rpc}} \
       --op-geth-url {{l2_rpc}} \
-      --op-node-url {{rollup_node_rpc}}
+      --op-node-url {{rollup_node_rpc}} \
+      --otlp-collector
 
-devnet-upgrade target="debug" verbosity="" l1_rpc="http://127.0.0.1:8545" l2_rpc="http://127.0.0.1:9545" rollup_node_rpc="http://127.0.0.1:7545" deployer="0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba" owner="0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6" guardian="0x2a871d0798f97d79848a013d4936a73bf4cc922c825d33c1cf7073dff6d409c6":
+devnet-upgrade timeout="3600" advantage="60" target="debug" verbosity="" l1_rpc="http://127.0.0.1:8545" l2_rpc="http://127.0.0.1:9545" rollup_node_rpc="http://127.0.0.1:7545" vanguard="0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc" deployer="0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba" owner="0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6" guardian="0x2a871d0798f97d79848a013d4936a73bf4cc922c825d33c1cf7073dff6d409c6":
   RISC0_DEV_MODE=1 ./target/{{target}}/kailua-cli fast-track \
       --eth-rpc-url {{l1_rpc}} \
       --op-geth-url {{l2_rpc}} \
@@ -39,33 +40,35 @@ devnet-upgrade target="debug" verbosity="" l1_rpc="http://127.0.0.1:8545" l2_rpc
       --proposal-output-count 20 \
       --output-block-span 3 \
       --proposal-time-gap 30 \
-      --challenge-timeout 3600 \
+      --challenge-timeout {{timeout}} \
       --collateral-amount 1 \
       --deployer-key {{deployer}} \
       --owner-key {{owner}} \
       --guardian-key {{guardian}} \
+      --vanguard-address {{vanguard}} \
+      --vanguard-advantage {{advantage}} \
       --respect-kailua-proposals \
       {{verbosity}}
 
 devnet-reset: devnet-down devnet-clean devnet-up
 
-devnet-propose target="debug" verbosity="" l1_rpc="http://127.0.0.1:8545" l1_beacon_rpc="http://127.0.0.1:5052" l2_rpc="http://127.0.0.1:9545" rollup_node_rpc="http://127.0.0.1:7545" data_dir=".localtestdata/propose" deployer="0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba":
+devnet-propose target="debug" verbosity="" l1_rpc="http://127.0.0.1:8545" l1_beacon_rpc="http://127.0.0.1:5052" l2_rpc="http://127.0.0.1:9545" rollup_node_rpc="http://127.0.0.1:7545" data_dir=".localtestdata/propose" proposer="0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba":
   ./target/{{target}}/kailua-cli propose \
       --eth-rpc-url {{l1_rpc}} \
       --beacon-rpc-url {{l1_beacon_rpc}} \
       --op-geth-url {{l2_rpc}} \
       --op-node-url {{rollup_node_rpc}} \
       --data-dir {{data_dir}} \
-      --proposer-key {{deployer}} \
+      --proposer-key {{proposer}} \
       {{verbosity}}
 
-devnet-fault offset parent target="debug" verbosity="" l1_rpc="http://127.0.0.1:8545" l1_beacon_rpc="http://127.0.0.1:5052" l2_rpc="http://127.0.0.1:9545" rollup_node_rpc="http://127.0.0.1:7545" deployer="0x47e179ec197488593b187f80a00eb0da91f1b9d0b13f8733639f19c30a34926a":
+devnet-fault offset parent target="debug" verbosity="" l1_rpc="http://127.0.0.1:8545" l1_beacon_rpc="http://127.0.0.1:5052" l2_rpc="http://127.0.0.1:9545" rollup_node_rpc="http://127.0.0.1:7545" proposer="0x47e179ec197488593b187f80a00eb0da91f1b9d0b13f8733639f19c30a34926a":
   ./target/{{target}}/kailua-cli test-fault \
       --eth-rpc-url {{l1_rpc}} \
       --beacon-rpc-url {{l1_beacon_rpc}} \
       --op-geth-url {{l2_rpc}} \
       --op-node-url {{rollup_node_rpc}} \
-      --proposer-key {{deployer}} \
+      --proposer-key {{proposer}} \
       --fault-offset {{offset}} \
       --fault-parent {{parent}} \
       {{verbosity}}
@@ -83,7 +86,7 @@ devnet-validate fastforward="0" target="debug" verbosity="" l1_rpc="http://127.0
 
 devnet-prove block_number block_count target="debug" verbosity="" data=".localtestdata": (prove block_number block_count "http://localhost:8545" "http://localhost:5052" "http://localhost:9545" "http://localhost:7545" data target verbosity)
 
-bench l1_rpc l1_beacon_rpc l2_rpc rollup_node_rpc data start range count target="release" verbosity="-v":
+bench l1_rpc l1_beacon_rpc l2_rpc rollup_node_rpc data start length range count target="release" verbosity="":
     ./target/{{target}}/kailua-cli benchmark \
           --eth-rpc-url {{l1_rpc}} \
           --beacon-rpc-url {{l1_beacon_rpc}} \
@@ -91,6 +94,7 @@ bench l1_rpc l1_beacon_rpc l2_rpc rollup_node_rpc data start range count target=
           --op-node-url {{rollup_node_rpc}} \
           --data-dir {{data}} \
           --bench-start {{start}} \
+          --bench-length {{length}} \
           --bench-range {{range}} \
           --bench-count {{count}} \
           {{verbosity}}
@@ -126,7 +130,6 @@ prove block_number block_count l1_rpc l1_beacon_rpc l2_rpc rollup_node_rpc data 
   echo "Running host program with zk client program..."
   ./target/{{target}}/kailua-host {{verbosity}} \
     --op-node-address $OP_NODE_ADDRESS \
-    single \
     --l1-head $L1_HEAD \
     --agreed-l2-head-hash $AGREED_L2_HEAD \
     --agreed-l2-output-root $AGREED_L2_OUTPUT_ROOT \
@@ -166,7 +169,7 @@ query block_number l1_rpc l1_beacon_rpc l2_rpc rollup_node_rpc:
 
 prove-offline block_number l2_claim l2_output_root l2_head l1_head l2_chain_id data target="release" verbosity="":
   echo "Running host program with zk client program..."
-  ./target/{{target}}/kailua-host single \
+  ./target/{{target}}/kailua-host {{verbosity}} \
     --l1-head {{l1_head}} \
     --agreed-l2-head-hash {{l2_head}} \
     --claimed-l2-output-root {{l2_claim}} \
@@ -174,8 +177,7 @@ prove-offline block_number l2_claim l2_output_root l2_head l1_head l2_chain_id d
     --claimed-l2-block-number {{block_number}} \
     --l2-chain-id {{l2_chain_id}} \
     --data-dir {{data}} \
-    --native \
-    {{verbosity}}
+    --native
 
 test verbosity="":
     echo "Running cargo tests"
@@ -186,11 +188,3 @@ test-offline target="release" verbosity="": (prove-offline "16491249" "0x82da720
 cleanup:
     echo "Cleanup: Removing any .fake receipt files in directory."
     rm ./*.fake
-
-kurtosis-up:
-  kurtosis run github.com/ethpandaops/optimism-package --args-file kurtosis.yaml > kurtosis.log
-
-kurtosis-down:
-  kurtosis clean -a
-
-kurtosis-prove block_number data verbosity="" target="release": (prove block_number "http://127.0.0.1:63638" "http://127.0.0.1:63650" "http://127.0.0.1:49320" "http://127.0.0.1:49383" data target verbosity)

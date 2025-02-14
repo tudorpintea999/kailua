@@ -35,9 +35,6 @@ use tracing::{error, info, warn};
 /// The size of the LRU cache in the oracle.
 pub const ORACLE_LRU_SIZE: usize = 1024;
 
-/// The max size of a witness allowed
-pub const MAX_WITNESS_SIZE: usize = 50 * 1024 * 1024;
-
 #[derive(thiserror::Error, Debug)]
 pub enum ProvingError {
     #[error("WitnessSizeError error: found {0} expected {0}")]
@@ -61,6 +58,8 @@ pub async fn run_proving_client<P, H>(
     stitched_proofs: Vec<Proof>,
     prove_snark: bool,
     force_attempt: bool,
+    segment_limit: u32,
+    max_witness_size: usize,
 ) -> Result<(), ProvingError>
 where
     P: PreimageOracleClient + Send + Sync + Debug + Clone + 'static,
@@ -79,6 +78,7 @@ where
         // Run witness generation with oracles
         witgen::run_witgen_client(
             preimage_oracle,
+            max_witness_size,
             blob_provider,
             payout_recipient,
             precondition_validation_data_hash,
@@ -87,10 +87,12 @@ where
         .await
         .expect("Failed to run map witgen client.")
     };
+
     // unroll map witness into a vec witness
     info!("Running vec witgen client.");
     let (journal_map, witness_vec): (ProofJournal, Witness<VecOracle>) = witgen::run_witgen_client(
         Arc::new(witness_map.oracle_witness.clone()),
+        max_witness_size / 10,
         PreloadedBlobProvider::from(witness_map.blobs_witness.clone()),
         payout_recipient,
         precondition_validation_data_hash,
@@ -113,18 +115,18 @@ where
     if journal != journal_vec {
         error!("Native journal does not match journal backed by vec witness");
     }
+
     // compute the receipt in the zkvm
-    let witness_frame = rkyv::to_bytes::<rkyv::rancor::Error>(&witness_vec)
-        .map_err(|e| ProvingError::OtherError(anyhow!(e)))?
-        .to_vec();
-    info!("Witness size: {}", witness_frame.len());
-    if witness_frame.len() > MAX_WITNESS_SIZE {
+    let witness_frames = encode_witness_frames(witness_vec).expect("Failed to encode VecOracle");
+    let witness_size = witness_frames.iter().map(|f| f.len()).sum::<usize>();
+    info!("Witness size: {}", witness_size);
+    if witness_size > max_witness_size {
         warn!("Witness too large.");
         if !force_attempt {
             warn!("Aborting.");
             return Err(ProvingError::WitnessSizeError(
-                witness_frame.len(),
-                MAX_WITNESS_SIZE,
+                witness_size,
+                max_witness_size,
             ));
         }
         warn!("Continuing..");
@@ -135,16 +137,18 @@ where
                 args,
                 boundless.storage,
                 journal,
-                witness_frame,
+                witness_frames,
                 stitched_proofs,
+                segment_limit,
             )
             .await?
         }
         None => {
             if bonsai::should_use_bonsai() {
-                bonsai::run_bonsai_client(witness_frame, stitched_proofs, prove_snark).await?
+                bonsai::run_bonsai_client(witness_frames, stitched_proofs, prove_snark).await?
             } else {
-                zkvm::run_zkvm_client(witness_frame, stitched_proofs, prove_snark).await?
+                zkvm::run_zkvm_client(witness_frames, stitched_proofs, prove_snark, segment_limit)
+                    .await?
             }
         }
     };
@@ -167,4 +171,25 @@ where
         .expect("Failed to flush proof output file data.");
 
     Ok(())
+}
+
+pub fn encode_witness_frames(witness_vec: Witness<VecOracle>) -> anyhow::Result<Vec<Vec<u8>>> {
+    let mut preimages = witness_vec.oracle_witness.preimages.lock().unwrap();
+    // serialize shards
+    let mut shards = vec![];
+    for entry in preimages.iter_mut().skip(1) {
+        let shard = core::mem::take(entry);
+        shards.push(
+            rkyv::to_bytes::<rkyv::rancor::Error>(&shard)
+                .map_err(|e| ProvingError::OtherError(anyhow!(e)))?
+                .to_vec(),
+        )
+    }
+    drop(preimages);
+    // serialize main witness object
+    let main_frame = rkyv::to_bytes::<rkyv::rancor::Error>(&witness_vec)
+        .map_err(|e| ProvingError::OtherError(anyhow!(e)))?
+        .to_vec();
+
+    Ok([vec![main_frame], shards].concat())
 }

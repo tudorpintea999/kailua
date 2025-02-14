@@ -14,27 +14,58 @@
 
 use clap::Parser;
 use kailua_cli::Cli;
-use kona_host::init_tracing_subscriber;
+use kailua_client::await_tel;
+use kailua_client::telemetry::init_tracer_provider;
+use opentelemetry::global::{shutdown_tracer_provider, tracer};
+use opentelemetry::trace::{FutureExt, Status, TraceContextExt, Tracer};
 use tempfile::tempdir;
+use tracing::error;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
-    init_tracing_subscriber(cli.verbosity())?;
+    kona_host::cli::init_tracing_subscriber(cli.verbosity())?;
+    init_tracer_provider(cli.telemetry_args())?;
+    let tracer = tracer("kailua");
+    let context = opentelemetry::Context::current_with_span(tracer.start("cli"));
 
     let tmp_dir = tempdir()?;
     let data_dir = cli.data_dir().unwrap_or(tmp_dir.path().to_path_buf());
 
-    match cli {
-        Cli::Config(args) => kailua_cli::config::config(args).await?,
-        Cli::FastTrack(args) => kailua_cli::fast_track::fast_track(args).await?,
-        Cli::Propose(args) => kailua_cli::propose::propose(args, data_dir).await?,
-        Cli::Validate(args) => kailua_cli::validate::validate(args, data_dir).await?,
-        Cli::TestFault(_args) =>
-        {
+    let command_res = match cli {
+        Cli::Config(args) => {
+            await_tel!(context, kailua_cli::config::config(args))
+        }
+        Cli::FastTrack(args) => {
+            await_tel!(context, kailua_cli::fast_track::fast_track(args))
+        }
+        Cli::Propose(args) => {
+            await_tel!(context, kailua_cli::propose::propose(args, data_dir))
+        }
+        Cli::Validate(args) => {
+            await_tel!(context, kailua_cli::validate::validate(args, data_dir))
+        }
+        Cli::TestFault(_args) => {
+            #[cfg(not(feature = "devnet"))]
+            unimplemented!("Intentional faults are only available on devnet environments");
             #[cfg(feature = "devnet")]
-            kailua_cli::fault::fault(_args).await?
-        } // Cli::Benchmark(bench_args) => kailua_cli::bench::benchmark(bench_args).await?,
+            await_tel!(context, kailua_cli::fault::fault(_args))
+        }
+        Cli::Benchmark(bench_args) => {
+            await_tel!(context, kailua_cli::bench::benchmark(bench_args))
+        }
+    };
+
+    let span = context.span();
+    if let Err(err) = command_res {
+        error!("Fatal error: {err:?}");
+        span.record_error(err.as_ref());
+        span.set_status(Status::error(format!("Fatal error: {err:?}")));
+    } else {
+        span.set_status(Status::Ok);
     }
+
+    shutdown_tracer_provider();
+
     Ok(())
 }

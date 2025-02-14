@@ -22,9 +22,10 @@ use risc0_zkvm::sha::Digest;
 use risc0_zkvm::{is_dev_mode, ProveInfo, Receipt, SessionStats};
 use std::time::Duration;
 use tracing::info;
+use tracing::log::warn;
 
 pub async fn run_bonsai_client(
-    witness_frame: Vec<u8>,
+    witness_frames: Vec<Vec<u8>>,
     stitched_proofs: Vec<Proof>,
     prove_snark: bool,
 ) -> Result<Proof, ProvingError> {
@@ -35,12 +36,23 @@ pub async fn run_bonsai_client(
     // Prepare input payload
     let mut input = Vec::new();
     // Load witness data
-    let witness_len = witness_frame.len() as u32;
-    input.extend_from_slice(&witness_len.to_le_bytes());
-    input.extend_from_slice(witness_frame.as_slice());
+    for frame in witness_frames {
+        let witness_len = frame.len() as u32;
+        input.extend_from_slice(&witness_len.to_le_bytes());
+        input.extend_from_slice(frame.as_slice());
+    }
     // Load recursive proofs and upload succinct receipts
     let mut assumption_receipt_ids = vec![];
     for proof in stitched_proofs {
+        if std::env::var("KAILUA_FORCE_RECURSION").is_ok() {
+            warn!("(KAILUA_FORCE_RECURSION) Forcibly loading receipt as guest input.");
+            // todo: convert boundless seals to groth16 receipts
+            input.extend_from_slice(bytemuck::cast_slice(
+                &to_vec(&proof).map_err(|e| ProvingError::OtherError(anyhow!(e)))?,
+            ));
+            continue;
+        }
+
         if let Proof::ZKVMReceipt(receipt) = proof {
             let inner_receipt = *receipt;
             let serialized_receipt = bincode::serialize(&inner_receipt)

@@ -153,16 +153,27 @@ contract KailuaGame is KailuaTournament {
             proposalBlobHashes.push(Hash.wrap(hash));
         }
 
+        // If a validity proof was submitted, do not allow conflicting proposals to be created
+        KailuaTournament parentGame_ = parentGame();
+        if (parentGame_.provenAt(0, 0).raw() > 0) {
+            if (
+                rootClaim().raw() != parentGame_.validChildRootClaim()
+                    || blobsHash() != parentGame_.validChildBlobsHash()
+            ) {
+                revert ProvenFaulty();
+            }
+        }
+
         // Allow only the treasury to create new games
         if (gameCreator() != address(KAILUA_TREASURY)) {
             revert Blacklisted(gameCreator(), address(KAILUA_TREASURY));
         }
 
         // Register this new game in the parent game's contract
-        parentGame().appendChild();
+        parentGame_.appendChild();
 
-        // Do not permit proposals if l2 block is still inside the gap
-        if (block.timestamp <= GENESIS_TIME_STAMP + thisL2BlockNumber * L2_BLOCK_TIME + PROPOSAL_TIME_GAP) {
+        // Do not permit proposals if l2 block is still inside the proposal gap
+        if (block.timestamp <= minCreationTime().raw()) {
             revert ClockTimeExceeded();
         }
     }
@@ -213,9 +224,6 @@ contract KailuaGame is KailuaTournament {
 
         // Update the status and emit the resolved event, note that we're performing a storage update here.
         emit Resolved(status = status_ = GameStatus.DEFENDER_WINS);
-
-        // Release the proposer from being bonded by just this proposal
-        KAILUA_TREASURY.releaseProposer();
     }
 
     // ------------------------------
@@ -255,12 +263,11 @@ contract KailuaGame is KailuaTournament {
         bytes calldata kzgProof
     ) external override returns (bool success) {
         uint256 blobIndex = KailuaLib.blobIndex(outputNumber);
-        uint256 blobPosition = KailuaLib.fieldElementIndex(outputNumber);
+        uint32 blobPosition = KailuaLib.fieldElementIndex(outputNumber);
         bytes32 proposalBlobHash = KailuaLib.versionedKZGHash(blobCommitment);
         // Note: The below check also implies that we can validate only against known blobs
         require(proposalBlobHash == proposalBlobHashes[blobIndex].raw(), "bad proposalBlobHash");
-        success =
-            KailuaLib.verifyKZGBlobProof(proposalBlobHash, uint32(blobPosition), outputFe, blobCommitment, kzgProof);
+        success = KailuaLib.verifyKZGBlobProof(proposalBlobHash, blobPosition, outputFe, blobCommitment, kzgProof);
     }
 
     /// @inheritdoc KailuaTournament
@@ -274,5 +281,10 @@ contract KailuaGame is KailuaTournament {
         uint64 elapsed = uint64(asOfTimestamp - createdAt.raw());
         uint64 maximum = MAX_CLOCK_DURATION.raw();
         duration_ = elapsed >= maximum ? Duration.wrap(0) : Duration.wrap(maximum - elapsed);
+    }
+
+    /// @inheritdoc KailuaTournament
+    function minCreationTime() public view override returns (Timestamp minCreationTime_) {
+        minCreationTime_ = Timestamp.wrap(uint64(GENESIS_TIME_STAMP + l2BlockNumber() * L2_BLOCK_TIME + PROPOSAL_TIME_GAP));
     }
 }

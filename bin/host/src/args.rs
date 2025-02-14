@@ -13,47 +13,55 @@
 // limitations under the License.
 
 use alloy_primitives::{Address, B256};
-use clap::Parser;
+use clap::{ArgAction, Parser};
+use kailua_client::telemetry::TelemetryArgs;
 use kailua_client::{
     args::{parse_address, parse_b256},
     boundless::BoundlessArgs,
 };
-use kona_host::cli::HostMode;
 use std::cmp::Ordering;
 
 /// The host binary CLI application arguments.
 #[derive(Parser, Clone, Debug)]
 pub struct KailuaHostArgs {
     #[clap(flatten)]
-    pub kona: kona_host::HostCli,
+    pub kona: kona_host::single::SingleChainHost,
 
     /// Address of OP-NODE endpoint to use
     #[clap(long, env)]
-    pub op_node_address: String,
+    pub op_node_address: Option<String>,
     /// Whether to skip running the zeth preflight engine
-    #[clap(long, default_value_t = false, env)]
+    #[clap(long, env, default_value_t = false)]
     pub skip_zeth_preflight: bool,
-    #[clap(long, value_parser = parse_address, env)]
+    #[clap(long, env, value_parser = parse_address)]
     pub payout_recipient_address: Option<Address>,
+    #[clap(long, env, required = false, default_value_t = 21)]
+    pub segment_limit: u32,
+    #[clap(long, env, required = false, default_value_t = 52_428_800)]
+    pub max_witness_size: usize,
 
-    #[clap(long, value_delimiter = ',', env)]
+    #[clap(long, env, value_delimiter = ',')]
     pub precondition_params: Vec<u64>,
-    #[clap(long, value_parser = parse_b256, value_delimiter = ',', env)]
+    #[clap(long, env, value_parser = parse_b256, value_delimiter = ',')]
     pub precondition_block_hashes: Vec<B256>,
-    #[clap(long, value_parser = parse_b256, value_delimiter = ',', env)]
+    #[clap(long, env, value_parser = parse_b256, value_delimiter = ',')]
     pub precondition_blob_hashes: Vec<B256>,
 
     #[clap(flatten)]
     pub boundless: BoundlessArgs,
+    #[clap(flatten)]
+    pub telemetry: TelemetryArgs,
+
+    /// Verbosity level (0-2)
+    #[arg(long, short, action = ArgAction::Count)]
+    pub v: u8,
 }
 
 impl PartialEq<Self> for KailuaHostArgs {
     fn eq(&self, other: &Self) -> bool {
-        let HostMode::Single(self_cfg) = &self.kona.mode;
-        let HostMode::Single(other_cfg) = &other.kona.mode;
-        self_cfg
+        self.kona
             .claimed_l2_block_number
-            .eq(&other_cfg.claimed_l2_block_number)
+            .eq(&other.kona.claimed_l2_block_number)
     }
 }
 
@@ -67,10 +75,8 @@ impl PartialOrd<Self> for KailuaHostArgs {
 
 impl Ord for KailuaHostArgs {
     fn cmp(&self, other: &Self) -> Ordering {
-        let HostMode::Single(self_cfg) = &self.kona.mode;
-        let HostMode::Single(other_cfg) = &other.kona.mode;
-        self_cfg
+        self.kona
             .claimed_l2_block_number
-            .cmp(&other_cfg.claimed_l2_block_number)
+            .cmp(&other.kona.claimed_l2_block_number)
     }
 }

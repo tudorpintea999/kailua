@@ -1,4 +1,4 @@
-// Copyright 2024 RISC Zero, Inc.
+// Copyright 2024, 2025 RISC Zero, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,15 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::transact::Transact;
 use alloy::contract::SolCallBuilder;
 use alloy::network::{Network, TransactionBuilder};
 use alloy::primitives::{Address, Uint, U256};
 use alloy::providers::Provider;
-use alloy::transports::Transport;
+use anyhow::Context;
+use kailua_client::telemetry::TelemetryArgs;
 use kailua_contracts::Safe::SafeInstance;
 use std::path::PathBuf;
 
-// pub mod bench;
+pub mod bench;
 pub mod channel;
 pub mod config;
 pub mod db;
@@ -28,7 +30,10 @@ pub mod fast_track;
 pub mod fault;
 pub mod propose;
 pub mod provider;
+pub mod retry;
+pub mod signer;
 pub mod stall;
+pub mod transact;
 pub mod validate;
 
 pub const KAILUA_GAME_TYPE: u32 = 1337;
@@ -44,7 +49,7 @@ pub enum Cli {
     Propose(propose::ProposeArgs),
     Validate(validate::ValidateArgs),
     TestFault(fault::FaultArgs),
-    // Benchmark(bench::BenchArgs),
+    Benchmark(bench::BenchArgs),
 }
 
 #[derive(clap::Args, Debug, Clone)]
@@ -78,7 +83,7 @@ impl Cli {
             Cli::Propose(args) => args.core.v,
             Cli::Validate(args) => args.core.v,
             Cli::TestFault(args) => args.propose_args.core.v,
-            // Cli::Benchmark(args) => args.v,
+            Cli::Benchmark(args) => args.core.v,
         }
     }
 
@@ -89,17 +94,33 @@ impl Cli {
             _ => None,
         }
     }
+
+    pub fn otlp_endpoint(&self) -> Option<String> {
+        match self {
+            Cli::Config(args) => args.telemetry.otlp_collector.clone(),
+            Cli::FastTrack(args) => args.telemetry.otlp_collector.clone(),
+            Cli::Propose(args) => args.telemetry.otlp_collector.clone(),
+            Cli::Validate(args) => args.telemetry.otlp_collector.clone(),
+            Cli::TestFault(args) => args.propose_args.telemetry.otlp_collector.clone(),
+            Cli::Benchmark(args) => args.telemetry.otlp_collector.clone(),
+        }
+    }
+
+    pub fn telemetry_args(&self) -> &TelemetryArgs {
+        match self {
+            Cli::Config(args) => &args.telemetry,
+            Cli::FastTrack(args) => &args.telemetry,
+            Cli::Propose(args) => &args.telemetry,
+            Cli::Validate(args) => &args.telemetry,
+            Cli::TestFault(args) => &args.propose_args.telemetry,
+            Cli::Benchmark(args) => &args.telemetry,
+        }
+    }
 }
 
-pub async fn exec_safe_txn<
-    T: Transport + Clone,
-    P1: Provider<T, N>,
-    P2: Provider<T, N>,
-    C,
-    N: Network,
->(
+pub async fn exec_safe_txn<T, P1: Provider<N>, P2: Provider<N>, C, N: Network>(
     txn: SolCallBuilder<T, P1, C, N>,
-    safe: &SafeInstance<T, P2, N>,
+    safe: &SafeInstance<(), P2, N>,
     from: Address,
 ) -> anyhow::Result<()> {
     let req = txn.into_transaction_request();
@@ -122,9 +143,8 @@ pub async fn exec_safe_txn<
         .concat()
         .into(),
     )
-    .send()
-    .await?
-    .get_receipt()
-    .await?;
+    .transact("Safe::execTransaction")
+    .await
+    .context("Safe::execTransaction")?;
     Ok(())
 }

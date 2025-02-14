@@ -17,10 +17,14 @@ use crate::KAILUA_GAME_TYPE;
 use alloy::primitives::address;
 use alloy::providers::ProviderBuilder;
 use anyhow::Context;
-use kailua_build::KAILUA_FPVM_ID;
+use kailua_build::{KAILUA_FPVM_ELF, KAILUA_FPVM_ID};
+use kailua_client::await_tel;
+use kailua_client::telemetry::TelemetryArgs;
 use kailua_common::config::{config_hash, BN254_CONTROL_ID, CONTROL_ROOT, SET_BUILDER_ID};
 use kailua_contracts::SystemConfig;
 use kailua_host::config::fetch_rollup_config;
+use opentelemetry::global::tracer;
+use opentelemetry::trace::{FutureExt, Status, TraceContextExt, Tracer};
 use risc0_zkvm::sha::Digest;
 
 #[derive(clap::Args, Debug, Clone)]
@@ -37,17 +41,34 @@ pub struct ConfigArgs {
     /// Address of the ethereum rpc endpoint to use (eth namespace required)
     #[clap(long, env)]
     pub eth_rpc_url: String,
+
+    #[clap(flatten)]
+    pub telemetry: TelemetryArgs,
 }
 
 pub async fn config(args: ConfigArgs) -> anyhow::Result<()> {
-    let config = fetch_rollup_config(&args.op_node_url, &args.op_geth_url, None)
-        .await
-        .context("fetch_rollup_config")?;
+    let tracer = tracer("kailua");
+    let context = opentelemetry::Context::current_with_span(tracer.start("config"));
+
+    let config = await_tel!(
+        context,
+        fetch_rollup_config(&args.op_node_url, &args.op_geth_url, None)
+    )
+    .context("fetch_rollup_config")?;
+
     let eth_rpc_provider = ProviderBuilder::new().on_http(args.eth_rpc_url.as_str().try_into()?);
     // load system config
     let system_config = SystemConfig::new(config.l1_system_config_address, &eth_rpc_provider);
-    let portal_address = system_config.optimismPortal().stall().await.addr_;
-    let dgf_address = system_config.disputeGameFactory().stall().await.addr_;
+    let portal_address = system_config
+        .optimismPortal()
+        .stall_with_context(context.clone(), "SystemConfig::optimismPortal")
+        .await
+        .addr_;
+    let dgf_address = system_config
+        .disputeGameFactory()
+        .stall_with_context(context.clone(), "SystemConfig::disputeGameFactory")
+        .await
+        .addr_;
 
     // report risc0 version
     println!("RISC0_VERSION: {}", risc0_zkvm::get_version()?);
@@ -56,6 +77,8 @@ pub async fn config(args: ConfigArgs) -> anyhow::Result<()> {
         "FPVM_IMAGE_ID: 0x{}",
         hex::encode_upper(Digest::new(KAILUA_FPVM_ID).as_bytes())
     );
+    // report elf size
+    println!("FPVM_ELF_SIZE: {}", KAILUA_FPVM_ELF.len());
     // Report expected Groth16 verifier parameters
     println!(
         "CONTROL_ROOT: 0x{}",
@@ -124,5 +147,6 @@ pub async fn config(args: ConfigArgs) -> anyhow::Result<()> {
     // report game type
     println!("KAILUA_GAME_TYPE: {}", KAILUA_GAME_TYPE);
 
+    context.span().set_status(Status::Ok);
     Ok(())
 }
