@@ -16,8 +16,8 @@ use crate::args::KailuaHostArgs;
 use alloy::providers::{Provider, ProviderBuilder, RootProvider};
 use anyhow::Context;
 use kailua_client::provider::OpNodeProvider;
-use maili_genesis::RollupConfig;
-use maili_registry::Registry;
+use kona_genesis::RollupConfig;
+use kona_registry::Registry;
 use opentelemetry::global::tracer;
 use opentelemetry::trace::{FutureExt, TraceContextExt, Tracer};
 use serde_json::{json, Value};
@@ -129,6 +129,12 @@ pub async fn fetch_rollup_config(
         if let Some(value) = chain_config[fork].as_str() {
             rollup_config[fork] = json!(value);
         }
+    }
+    // remove unused fields
+    {
+        let rollup_config_map = rollup_config.as_object_mut().unwrap();
+        rollup_config_map.remove("chain_op_config");
+        rollup_config_map.remove("alt_da_config");
     }
     // export
     let ser_config = serde_json::to_string(&rollup_config)?;

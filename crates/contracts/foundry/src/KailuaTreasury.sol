@@ -198,7 +198,7 @@ contract KailuaTreasury is KailuaTournament, IKailuaTreasury {
 
     modifier onlyFactoryOwner() {
         OwnableUpgradeable factoryContract = OwnableUpgradeable(address(DISPUTE_GAME_FACTORY));
-        require(msg.sender == factoryContract.owner(), "Ownable: caller is not the owner");
+        require(msg.sender == factoryContract.owner(), "not owner");
         _;
     }
 
@@ -228,6 +228,7 @@ contract KailuaTreasury is KailuaTournament, IKailuaTreasury {
         }
     }
 
+    /// @notice Pays the proposer back its bond
     function claimProposerBond() public nonReentrant {
         // INVARIANT: Can only claim bond back if no pending proposals are left
         KailuaTournament previousGame = lastProposal[msg.sender];
@@ -291,7 +292,7 @@ contract KailuaTreasury is KailuaTournament, IKailuaTreasury {
         // Check proposal progression
         KailuaTournament previousGame = lastProposal[msg.sender];
         if (address(previousGame) != address(0x0)) {
-            // INVARIANT: Proposers may only extend the proposal set monotonically
+            // INVARIANT: Proposers may only extend the proposal set incrementally
             if (previousGame.l2BlockNumber() >= gameContract.l2BlockNumber()) {
                 revert BlockNumberMismatch(previousGame.l2BlockNumber(), gameContract.l2BlockNumber());
             }

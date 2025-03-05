@@ -15,9 +15,10 @@
 pub mod blobs;
 pub mod client;
 pub mod config;
+pub mod executor;
 pub mod journal;
 pub mod oracle;
 pub mod precondition;
 pub mod proof;
-pub mod stitching;
+pub mod rkyv;
 pub mod witness;

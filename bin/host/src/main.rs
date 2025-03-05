@@ -15,19 +15,25 @@
 use alloy::network::primitives::BlockTransactionsKind;
 use alloy::providers::{Provider, RootProvider};
 use alloy_eips::BlockNumberOrTag;
-use anyhow::{bail, Context};
+use alloy_primitives::B256;
+use anyhow::{anyhow, bail, Context};
 use clap::Parser;
 use kailua_client::provider::OpNodeProvider;
 use kailua_client::proving::ProvingError;
 use kailua_common::witness::StitchedBootInfo;
 use kailua_host::args::KailuaHostArgs;
+use kailua_host::config::generate_rollup_config;
+use kailua_host::preflight::{
+    concurrent_execution_preflight, fetch_precondition_data, zeth_execution_preflight,
+};
 use std::collections::BinaryHeap;
 use std::env::set_var;
+use tempfile::tempdir;
 use tracing::{info, warn};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let args = KailuaHostArgs::parse();
+    let mut args = KailuaHostArgs::parse();
     kona_host::cli::init_tracing_subscriber(args.v)?;
     set_var("KAILUA_VERBOSITY", args.v.to_string());
 
@@ -44,6 +50,53 @@ async fn main() -> anyhow::Result<()> {
                 .expect("Failed to parse op_node_address"),
         ))
     });
+
+    // set tmp data dir if data dir unset
+    let tmp_dir = tempdir().map_err(|e| ProvingError::OtherError(anyhow!(e)))?;
+    if args.kona.data_dir.is_none() {
+        args.kona.data_dir = Some(tmp_dir.path().to_path_buf());
+    }
+    // fetch rollup config
+    let rollup_config = generate_rollup_config(&mut args, &tmp_dir)
+        .await
+        .context("generate_rollup_config")
+        .map_err(|e| ProvingError::OtherError(anyhow!(e)))?;
+    // preload precondition data into KV store
+    let (precondition_hash, precondition_validation_data_hash) =
+        match fetch_precondition_data(&args)
+            .await
+            .map_err(|e| ProvingError::OtherError(anyhow!(e)))?
+        {
+            Some(data) => {
+                let precondition_validation_data_hash = data.hash();
+                set_var(
+                    "PRECONDITION_VALIDATION_DATA_HASH",
+                    precondition_validation_data_hash.to_string(),
+                );
+                (data.precondition_hash(), precondition_validation_data_hash)
+            }
+            None => (B256::ZERO, B256::ZERO),
+        };
+    if args.num_preflight_threads > 1 {
+        // run parallelized preflight instances to populate kv store
+        info!(
+            "Running concurrent preflights with {} threads",
+            args.num_preflight_threads
+        );
+        concurrent_execution_preflight(
+            &args,
+            rollup_config.clone(),
+            op_node_provider.as_ref().expect("Missing op_node_provider"),
+        )
+        .await
+        .map_err(|e| ProvingError::OtherError(anyhow!(e)))?;
+    } else if !args.skip_zeth_preflight {
+        // run zeth preflight to fetch all the necessary preimages
+        zeth_execution_preflight(&args, rollup_config.clone())
+            .await
+            .map_err(|e| ProvingError::OtherError(anyhow!(e)))?;
+    }
+
     // compute individual proofs
     let mut job_pq = BinaryHeap::new();
     let mut proofs = Vec::new();
@@ -76,25 +129,31 @@ async fn main() -> anyhow::Result<()> {
 
         match kailua_host::prove::compute_fpvm_proof(
             job_args.clone(),
+            rollup_config.clone(),
+            None,
+            precondition_hash,
+            precondition_validation_data_hash,
             vec![],
             vec![],
             !have_split,
-            force_attempt,
         )
         .await
         {
             Ok(proof) => {
-                proofs.push(proof);
+                if let Some(proof) = proof {
+                    proofs.push(proof);
+                }
             }
-            Err(e) => {
-                match e {
-                    ProvingError::WitnessSizeError(f, e) => {
+            Err(err) => {
+                // Handle error case
+                match err {
+                    ProvingError::WitnessSizeError(f, t, ..) => {
                         if force_attempt {
-                            unreachable!(
-                                "Received WitnessSizeError({f},{e}) for a forced proving attempt."
+                            bail!(
+                                "Received WitnessSizeError({f},{t}) for a forced proving attempt: {err:?}"
                             );
                         }
-                        warn!("Proof witness size {f} above safety threshold {e}. Splitting workload.")
+                        warn!("Proof witness size {f} above safety threshold {t}. Splitting workload.")
                     }
                     ProvingError::ExecutionError(e) => {
                         if force_attempt {
@@ -104,6 +163,11 @@ async fn main() -> anyhow::Result<()> {
                     }
                     ProvingError::OtherError(e) => {
                         bail!("Irrecoverable proving error: {e:?}")
+                    }
+                    ProvingError::SeekProofError(..) => unreachable!("SeekProofError bubbled up"),
+                    ProvingError::DerivationProofError(proofs) => {
+                        info!("Computed {proofs} execution-only proofs.");
+                        continue;
                     }
                 }
                 // Split workload at midpoint (num_blocks > 1)
@@ -123,12 +187,12 @@ async fn main() -> anyhow::Result<()> {
                     )
                     .await?
                     .unwrap_or_else(|| panic!("Block {mid_point} not found"));
-                // Lower half workload ends at midpoint
+                // Lower half workload ends at midpoint (inclusive)
                 let mut lower_job_args = job_args.clone();
                 lower_job_args.kona.claimed_l2_output_root = mid_output;
                 lower_job_args.kona.claimed_l2_block_number = mid_point;
                 job_pq.push(lower_job_args);
-                // upper half workload starts at midpoint
+                // upper half workload starts after midpoint
                 let mut upper_job_args = job_args;
                 upper_job_args.kona.agreed_l2_output_root = mid_output;
                 upper_job_args.kona.agreed_l2_head_hash = mid_block.header.hash;
@@ -163,9 +227,18 @@ async fn main() -> anyhow::Result<()> {
             .iter()
             .map(StitchedBootInfo::from)
             .collect::<Vec<_>>();
-        kailua_host::prove::compute_fpvm_proof(base_args, stitched_boot_info, proofs, true, true)
-            .await
-            .context("Failed to compute FPVM proof.")?;
+        kailua_host::prove::compute_fpvm_proof(
+            base_args,
+            rollup_config.clone(),
+            None,
+            precondition_hash,
+            precondition_validation_data_hash,
+            stitched_boot_info,
+            proofs,
+            true,
+        )
+        .await
+        .context("Failed to compute FPVM proof.")?;
     }
 
     info!("Exiting host program.");

@@ -22,9 +22,8 @@ import "./vendor/FlatR0ImportV1.2.0.sol";
 /// @custom:value NONE indicates that no proof has been submitted yet.
 enum ProofStatus {
     NONE,
-    U_LOSE_V_LOSE,
-    U_LOSE_V_WIN,
-    U_WIN_V_LOSE
+    FAULT,
+    VALIDITY
 }
 
 // 0xd36871fd
@@ -93,11 +92,10 @@ error BlockNumberMismatch(uint256 anchored, uint256 initialized);
 /// @param parentGame The address of the parent proposal being extended
 error VanguardError(address parentGame);
 
-/// @notice Emitted when an output is proven.
-/// @param u The preexisting proposal
-/// @param v The subsequent proposal
-/// @param status The proven status of the match
-event Proven(uint64 indexed u, uint64 indexed v, ProofStatus indexed status);
+/// @notice Emitted when a proof is submitted.
+/// @param signature The proposal signature
+/// @param status The proven status
+event Proven(bytes32 indexed signature, ProofStatus indexed status);
 
 /// @notice Emitted when the participation bond is updated
 /// @param amount The new required bond amount
@@ -117,7 +115,7 @@ interface IKailuaTreasury {
     function isProposing() external returns (bool);
 }
 
-library KailuaLib {
+library KailuaKZGLib {
     /// @notice The KZG commitment version
     bytes32 internal constant KZG_COMMITMENT_VERSION =
         bytes32(0x0100000000000000000000000000000000000000000000000000000000000000);
@@ -142,23 +140,28 @@ library KailuaLib {
     /// @notice The number of field elements in a single blob
     uint256 internal constant FIELD_ELEMENTS_PER_BLOB = (1 << FIELD_ELEMENTS_PER_BLOB_PO2);
 
+    /// @notice The index of the blob containing the FE at the provided offset
     function blobIndex(uint256 outputOffset) internal pure returns (uint256 index) {
         index = outputOffset / FIELD_ELEMENTS_PER_BLOB;
     }
 
+    /// @notice The index of the FE at the provided offset in the blob that contains it
     function fieldElementIndex(uint256 outputOffset) internal pure returns (uint32 position) {
         position = uint32(outputOffset % FIELD_ELEMENTS_PER_BLOB);
     }
 
+    /// @notice The versioned KZG hash of the provided blob commitment
     function versionedKZGHash(bytes calldata blobCommitment) internal pure returns (bytes32 hash) {
         require(blobCommitment.length == 48);
         hash = ((sha256(blobCommitment) << 8) >> 8) | KZG_COMMITMENT_VERSION;
     }
 
+    /// @notice The mapped FE corresponding to the input hash
     function hashToFe(bytes32 hash) internal pure returns (uint256 fe) {
         fe = uint256(hash) % BLS_MODULUS;
     }
 
+    /// @notice Returns true iff the proof shows that the FE is part of the blob at the provided position
     function verifyKZGBlobProof(
         bytes32 versionedBlobHash,
         uint32 index,
@@ -181,6 +184,7 @@ library KailuaLib {
         success = _success;
     }
 
+    /// @notice Calls the modular exponentiation precompile with a fixed base and modulus
     function modExp(uint256 exponent) internal returns (uint256 result) {
         bytes memory modExpData =
             abi.encodePacked(uint256(32), uint256(32), uint256(32), ROOT_OF_UNITY, exponent, BLS_MODULUS);
@@ -189,6 +193,7 @@ library KailuaLib {
         result = uint256(bytes32(rootOfUnity));
     }
 
+    /// @notice Reverses the bits of the input index
     function reverseBits(uint32 index) internal pure returns (uint256 result) {
         for (uint256 i = 0; i < FIELD_ELEMENTS_PER_BLOB_PO2; i++) {
             result <<= 1;

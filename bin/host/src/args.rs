@@ -12,13 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use alloy_primitives::{Address, B256};
+use alloy_primitives::B256;
 use clap::{ArgAction, Parser};
+use kailua_client::proving::ProvingArgs;
 use kailua_client::telemetry::TelemetryArgs;
-use kailua_client::{
-    args::{parse_address, parse_b256},
-    boundless::BoundlessArgs,
-};
+use kailua_client::{args::parse_b256, boundless::BoundlessArgs};
 use std::cmp::Ordering;
 
 /// The host binary CLI application arguments.
@@ -31,14 +29,14 @@ pub struct KailuaHostArgs {
     #[clap(long, env)]
     pub op_node_address: Option<String>,
     /// Whether to skip running the zeth preflight engine
-    #[clap(long, env, default_value_t = false)]
+    #[clap(long, env, default_value_t = true)]
     pub skip_zeth_preflight: bool,
-    #[clap(long, env, value_parser = parse_address)]
-    pub payout_recipient_address: Option<Address>,
-    #[clap(long, env, required = false, default_value_t = 21)]
-    pub segment_limit: u32,
-    #[clap(long, env, required = false, default_value_t = 52_428_800)]
-    pub max_witness_size: usize,
+    /// How many threads to use for fetching preflight data
+    #[clap(long, env, default_value_t = 4)]
+    pub num_preflight_threads: u64,
+
+    #[clap(flatten)]
+    pub proving: ProvingArgs,
 
     #[clap(long, env, value_delimiter = ',')]
     pub precondition_params: Vec<u64>,
