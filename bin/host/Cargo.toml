@@ -1,6 +1,6 @@
 [package]
 name = "kailua-host"
-version = "0.3.0-alpha.0"
+version = "0.3.3"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
@@ -51,12 +51,6 @@ kona-registry.workspace = true
 # zkVM
 bonsai-sdk.workspace = true
 risc0-zkvm.workspace = true
-
-# Zeth
-zeth-core.workspace = true
-zeth-core-optimism.workspace = true
-zeth-preflight.workspace = true
-zeth-preflight-optimism.workspace = true
 
 [features]
 prove = [

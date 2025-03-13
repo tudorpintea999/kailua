@@ -25,6 +25,7 @@ use kailua_contracts::SystemConfig;
 use kailua_host::config::fetch_rollup_config;
 use opentelemetry::global::tracer;
 use opentelemetry::trace::{FutureExt, Status, TraceContextExt, Tracer};
+use risc0_zkvm::compute_image_id;
 use risc0_zkvm::sha::Digest;
 
 #[derive(clap::Args, Debug, Clone)]
@@ -55,6 +56,7 @@ pub async fn config(args: ConfigArgs) -> anyhow::Result<()> {
         fetch_rollup_config(&args.op_node_url, &args.op_geth_url, None)
     )
     .context("fetch_rollup_config")?;
+    let rollup_config_hash = config_hash(&config).expect("Configuration hash derivation error");
 
     let eth_rpc_provider = ProviderBuilder::new().on_http(args.eth_rpc_url.as_str().try_into()?);
     // load system config
@@ -73,10 +75,13 @@ pub async fn config(args: ConfigArgs) -> anyhow::Result<()> {
     // report risc0 version
     println!("RISC0_VERSION: {}", risc0_zkvm::get_version()?);
     // report fpvm image id
+    let stored_image_id = Digest::new(KAILUA_FPVM_ID);
     println!(
         "FPVM_IMAGE_ID: 0x{}",
-        hex::encode_upper(Digest::new(KAILUA_FPVM_ID).as_bytes())
+        hex::encode_upper(stored_image_id.as_bytes())
     );
+    let computed_image_id = compute_image_id(KAILUA_FPVM_ELF).context("compute_image_id")?;
+    assert_eq!(computed_image_id, stored_image_id);
     // report elf size
     println!("FPVM_ELF_SIZE: {}", KAILUA_FPVM_ELF.len());
     // Report expected Groth16 verifier parameters
@@ -129,7 +134,6 @@ pub async fn config(args: ConfigArgs) -> anyhow::Result<()> {
     // report inter-block time
     println!("BLOCK_TIME: {}", config.block_time);
     // report rollup config hash
-    let rollup_config_hash = config_hash(&config).expect("Configuration hash derivation error");
     println!(
         "ROLLUP_CONFIG_HASH: 0x{}",
         hex::encode_upper(rollup_config_hash)

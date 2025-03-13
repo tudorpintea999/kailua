@@ -36,11 +36,13 @@ pub async fn generate_rollup_config(
         None => {
             let registry = Registry::from_chain_list();
             let tmp_cfg_file = tmp_dir.path().join("rollup-config.json");
-            if let Some(rollup_config) = cfg
-                .kona
-                .l2_chain_id
-                .and_then(|chain_id| registry.rollup_configs.get(&chain_id))
-            {
+            if let Some(rollup_config) = cfg.kona.l2_chain_id.and_then(|chain_id| {
+                if cfg.bypass_chain_registry {
+                    None
+                } else {
+                    registry.rollup_configs.get(&chain_id)
+                }
+            }) {
                 info!(
                     "Loading config for rollup with chain id {} from registry",
                     cfg.kona.l2_chain_id.unwrap()
@@ -130,11 +132,23 @@ pub async fn fetch_rollup_config(
             rollup_config[fork] = json!(value);
         }
     }
-    // remove unused fields
+    // remove unused fields (todo: reintegrate on Kona update)
     {
         let rollup_config_map = rollup_config.as_object_mut().unwrap();
         rollup_config_map.remove("chain_op_config");
         rollup_config_map.remove("alt_da_config");
+        rollup_config_map.remove("pectra_blob_schedule_time");
+        let genesis_config_map = rollup_config_map
+            .get_mut("genesis")
+            .unwrap()
+            .as_object_mut()
+            .unwrap();
+        let system_config_map = genesis_config_map
+            .get_mut("system_config")
+            .unwrap()
+            .as_object_mut()
+            .unwrap();
+        system_config_map.remove("operatorFeeParams");
     }
     // export
     let ser_config = serde_json::to_string(&rollup_config)?;
