@@ -71,6 +71,16 @@ contract KailuaGame is KailuaTournament {
         GENESIS_TIME_STAMP = _genesisTimeStamp;
         L2_BLOCK_TIME = _l2BlockTime;
         PROPOSAL_TIME_GAP = _proposalTimeGap;
+        // Require KailuaTreasury tournament config to match KailuaGame tournament config
+        KailuaTreasury treasury = KailuaTreasury(address(_kailuaTreasury));
+        require(treasury.RISC_ZERO_VERIFIER() == RISC_ZERO_VERIFIER);
+        require(treasury.FPVM_IMAGE_ID() == FPVM_IMAGE_ID);
+        require(treasury.ROLLUP_CONFIG_HASH() == ROLLUP_CONFIG_HASH);
+        require(treasury.PROPOSAL_OUTPUT_COUNT() == PROPOSAL_OUTPUT_COUNT);
+        require(treasury.OUTPUT_BLOCK_SPAN() == OUTPUT_BLOCK_SPAN);
+        require(treasury.PROPOSAL_BLOBS() == PROPOSAL_BLOBS);
+        require(treasury.GAME_TYPE().raw() == GAME_TYPE.raw());
+        require(treasury.DISPUTE_GAME_FACTORY() == DISPUTE_GAME_FACTORY);
     }
 
     // ------------------------------
@@ -101,7 +111,7 @@ contract KailuaGame is KailuaTournament {
             revert BadExtraData();
         }
 
-        // Do only allow monotonic duplication counter
+        // Only allow monotonic duplication counter
         uint256 duplicationCounter_ = duplicationCounter();
         if (duplicationCounter_ > 0) {
             bytes memory extra = abi.encodePacked(msg.data[0x58:0x68], uint64(duplicationCounter_ - 1));
@@ -133,8 +143,13 @@ contract KailuaGame is KailuaTournament {
             proposalBlobHashes.push(Hash.wrap(hash));
         }
 
-        // If a proof was submitted, do not allow bad proposals to be created
+        // Verify that parent game is known by the treasury
         KailuaTournament parentGame_ = parentGame();
+        if (KAILUA_TREASURY.proposerOf(address(parentGame_)) == address(0x0)) {
+            revert InvalidParent();
+        }
+
+        // If a proof was submitted, do not allow bad proposals to be created
         if (!parentGame_.isViableSignature(signature())) {
             revert ProvenFaulty();
         }
