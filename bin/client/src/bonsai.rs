@@ -13,22 +13,23 @@
 // limitations under the License.
 
 use crate::proving::ProvingError;
+use crate::proving::{KailuaProveInfo, KailuaSessionStats};
 use anyhow::{anyhow, Context};
 use bonsai_sdk::non_blocking::Client;
+use human_bytes::human_bytes;
 use kailua_build::{KAILUA_FPVM_ELF, KAILUA_FPVM_ID};
-use kailua_common::proof::Proof;
 use risc0_zkvm::serde::to_vec;
 use risc0_zkvm::sha::Digest;
-use risc0_zkvm::{is_dev_mode, ProveInfo, Receipt, SessionStats};
+use risc0_zkvm::{is_dev_mode, InnerReceipt, Receipt};
 use std::time::Duration;
 use tracing::info;
 use tracing::log::warn;
 
 pub async fn run_bonsai_client(
     witness_frames: Vec<Vec<u8>>,
-    stitched_proofs: Vec<Proof>,
+    stitched_proofs: Vec<Receipt>,
     prove_snark: bool,
-) -> Result<Proof, ProvingError> {
+) -> Result<Receipt, ProvingError> {
     info!("Running Bonsai client.");
     // Instantiate client
     let client =
@@ -43,43 +44,47 @@ pub async fn run_bonsai_client(
     }
     // Load recursive proofs and upload succinct receipts
     let mut assumption_receipt_ids = vec![];
-    for proof in stitched_proofs {
+    for receipt in stitched_proofs {
         if std::env::var("KAILUA_FORCE_RECURSION").is_ok() {
             warn!("(KAILUA_FORCE_RECURSION) Forcibly loading receipt as guest input.");
-            // todo: convert boundless seals to groth16 receipts
             input.extend_from_slice(bytemuck::cast_slice(
-                &to_vec(&proof).map_err(|e| ProvingError::OtherError(anyhow!(e)))?,
+                &to_vec(&receipt).map_err(|e| ProvingError::OtherError(anyhow!(e)))?,
             ));
             continue;
         }
 
-        if let Proof::ZKVMReceipt(receipt) = proof {
-            let inner_receipt = *receipt;
-            let serialized_receipt = bincode::serialize(&inner_receipt)
-                .map_err(|e| ProvingError::OtherError(anyhow!(e)))?;
+        if matches!(receipt.inner, InnerReceipt::Groth16(_)) {
+            input.extend_from_slice(bytemuck::cast_slice(
+                &to_vec(&receipt).map_err(|e| ProvingError::OtherError(anyhow!(e)))?,
+            ));
+        } else {
+            let serialized_receipt =
+                bincode::serialize(&receipt).map_err(|e| ProvingError::OtherError(anyhow!(e)))?;
             let receipt_id = client
                 .upload_receipt(serialized_receipt)
                 .await
                 .map_err(|e| ProvingError::OtherError(anyhow!(e)))?;
             assumption_receipt_ids.push(receipt_id);
-        } else {
-            // todo: convert boundless seals to groth16 receipts
-            input.extend_from_slice(bytemuck::cast_slice(
-                &to_vec(&proof).map_err(|e| ProvingError::OtherError(anyhow!(e)))?,
-            ));
         }
     }
 
     // Upload the ELF with the image_id as its key.
-    info!("Uploading Kailua ELF to Bonsai.");
+    let elf = KAILUA_FPVM_ELF.to_vec();
+    info!(
+        "Uploading {} Kailua ELF to Bonsai.",
+        human_bytes(elf.len() as f64).to_string()
+    );
     let image_id_hex = hex::encode(Digest::from(KAILUA_FPVM_ID));
     client
-        .upload_img(&image_id_hex, KAILUA_FPVM_ELF.to_vec())
+        .upload_img(&image_id_hex, elf)
         .await
         .map_err(|e| ProvingError::OtherError(anyhow!(e)))?;
 
     // Upload the input data
-    info!("Uploading input data to Bonsai.");
+    info!(
+        "Uploading {} input data to Bonsai.",
+        human_bytes(input.len() as f64).to_string()
+    );
     let input_id = client
         .upload_input(input)
         .await
@@ -142,9 +147,9 @@ pub async fn run_bonsai_client(
                 .verify(KAILUA_FPVM_ID)
                 .map_err(|e| ProvingError::OtherError(anyhow!(e)))?;
 
-            break ProveInfo {
+            break KailuaProveInfo {
                 receipt,
-                stats: SessionStats {
+                stats: KailuaSessionStats {
                     segments: stats.segments,
                     total_cycles: stats.total_cycles,
                     user_cycles: stats.cycles,
@@ -165,7 +170,7 @@ pub async fn run_bonsai_client(
     };
 
     if !prove_snark {
-        return Ok(Proof::ZKVMReceipt(Box::new(succinct_prove_info.receipt)));
+        return Ok(succinct_prove_info.receipt);
     }
     info!("Wrapping STARK as SNARK on Bonsai.");
 
@@ -219,8 +224,7 @@ pub async fn run_bonsai_client(
         .context("failed to verify Groth16Receipt returned by Bonsai")
         .map_err(|e| ProvingError::OtherError(anyhow!(e)))?;
 
-    // todo: return Groth16Receipt variant
-    Ok(Proof::ZKVMReceipt(Box::new(groth16_receipt)))
+    Ok(groth16_receipt)
 }
 
 pub fn should_use_bonsai() -> bool {

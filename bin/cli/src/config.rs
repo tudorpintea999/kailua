@@ -20,13 +20,14 @@ use anyhow::Context;
 use kailua_build::{KAILUA_FPVM_ELF, KAILUA_FPVM_ID};
 use kailua_client::await_tel;
 use kailua_client::telemetry::TelemetryArgs;
-use kailua_common::config::{config_hash, BN254_CONTROL_ID, CONTROL_ROOT, SET_BUILDER_ID};
+use kailua_common::config::{config_hash, BN254_CONTROL_ID, CONTROL_ROOT};
 use kailua_contracts::SystemConfig;
 use kailua_host::config::fetch_rollup_config;
 use opentelemetry::global::tracer;
 use opentelemetry::trace::{FutureExt, Status, TraceContextExt, Tracer};
 use risc0_zkvm::compute_image_id;
 use risc0_zkvm::sha::Digest;
+use tracing::debug;
 
 #[derive(clap::Args, Debug, Clone)]
 pub struct ConfigArgs {
@@ -56,6 +57,7 @@ pub async fn config(args: ConfigArgs) -> anyhow::Result<()> {
         fetch_rollup_config(&args.op_node_url, &args.op_geth_url, None)
     )
     .context("fetch_rollup_config")?;
+    debug!("{config:?}");
     let rollup_config_hash = config_hash(&config).expect("Configuration hash derivation error");
 
     let eth_rpc_provider = ProviderBuilder::new().on_http(args.eth_rpc_url.as_str().try_into()?);
@@ -92,11 +94,6 @@ pub async fn config(args: ConfigArgs) -> anyhow::Result<()> {
     println!(
         "CONTROL_ID: 0x{}",
         hex::encode_upper(BN254_CONTROL_ID.as_slice()),
-    );
-    // Report expected Boundless verifier parameters
-    println!(
-        "SET_BUILDER_ID: 0x{}",
-        hex::encode_upper(SET_BUILDER_ID.as_slice())
     );
     // report verifier address
     let verifier_address = match config.l1_chain_id {

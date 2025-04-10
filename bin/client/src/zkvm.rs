@@ -13,19 +13,19 @@
 // limitations under the License.
 
 use crate::proving::ProvingError;
+use crate::proving::{KailuaProveInfo, KailuaSessionStats};
 use anyhow::{anyhow, Context};
 use kailua_build::{KAILUA_FPVM_ELF, KAILUA_FPVM_ID};
-use kailua_common::proof::Proof;
-use risc0_zkvm::{default_prover, is_dev_mode, ExecutorEnv, ProverOpts};
+use risc0_zkvm::{default_prover, is_dev_mode, ExecutorEnv, InnerReceipt, ProverOpts, Receipt};
 use tracing::info;
 use tracing::log::warn;
 
 pub async fn run_zkvm_client(
     witness_frames: Vec<Vec<u8>>,
-    stitched_proofs: Vec<Proof>,
+    stitched_proofs: Vec<Receipt>,
     prove_snark: bool,
     segment_limit: u32,
-) -> Result<Proof, ProvingError> {
+) -> Result<Receipt, ProvingError> {
     info!("Running zkvm client.");
     let prove_info = tokio::task::spawn_blocking(move || {
         let env = build_zkvm_env(witness_frames, stitched_proofs, segment_limit)?;
@@ -35,10 +35,23 @@ pub async fn run_zkvm_client(
         } else {
             ProverOpts::succinct()
         };
-        let prove_info = prover
+        let risc0_prove_info = prover
             .prove_with_opts(env, KAILUA_FPVM_ELF, &prover_opts)
             .context("prove_with_opts")?;
-        Ok::<_, anyhow::Error>(prove_info)
+
+        // Convert to our own KailuaProveInfo
+        let kailua_prove_info = KailuaProveInfo {
+            receipt: risc0_prove_info.receipt,
+            stats: KailuaSessionStats {
+                segments: risc0_prove_info.stats.segments,
+                total_cycles: risc0_prove_info.stats.total_cycles,
+                user_cycles: risc0_prove_info.stats.user_cycles,
+                paging_cycles: risc0_prove_info.stats.paging_cycles,
+                reserved_cycles: risc0_prove_info.stats.reserved_cycles,
+            },
+        };
+
+        Ok::<_, anyhow::Error>(kailua_prove_info)
     })
     .await
     .map_err(|e| ProvingError::OtherError(anyhow!(e)))?
@@ -55,13 +68,12 @@ pub async fn run_zkvm_client(
         .map_err(|e| ProvingError::OtherError(anyhow!(e)))?;
     info!("Receipt verified.");
 
-    // todo: return Groth16Receipt variant if snark
-    Ok(Proof::ZKVMReceipt(Box::new(prove_info.receipt)))
+    Ok(prove_info.receipt)
 }
 
 pub fn build_zkvm_env<'a>(
     witness_frames: Vec<Vec<u8>>,
-    stitched_proofs: Vec<Proof>,
+    stitched_proofs: Vec<Receipt>,
     segment_limit: u32,
 ) -> anyhow::Result<ExecutorEnv<'a>> {
     // Execution environment
@@ -77,20 +89,18 @@ pub fn build_zkvm_env<'a>(
         builder.env_var("RISC0_DEV_MODE", "1");
     }
     // Pass in proofs
-    for proof in stitched_proofs {
+    for receipt in stitched_proofs {
         // Force in-guest verification (should be used for testing only)
         if std::env::var("KAILUA_FORCE_RECURSION").is_ok() {
             warn!("(KAILUA_FORCE_RECURSION) Forcibly loading receipt as guest input.");
-            // todo: convert boundless seals to groth16 receipts
-            builder.write(&proof)?;
+            builder.write(&receipt)?;
             continue;
         }
 
-        if let Proof::ZKVMReceipt(receipt) = proof {
-            builder.add_assumption(*receipt);
+        if matches!(receipt.inner, InnerReceipt::Groth16(_)) {
+            builder.write(&receipt)?;
         } else {
-            // todo: convert boundless seals to groth16 receipts
-            builder.write(&proof)?;
+            builder.add_assumption(receipt);
         }
     }
     builder.build()

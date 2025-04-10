@@ -15,48 +15,10 @@
 use alloy_primitives::keccak256;
 use anyhow::{bail, Context};
 use kailua_common::journal::ProofJournal;
-use kailua_common::proof::Proof;
+use risc0_zkvm::Receipt;
 use std::path::Path;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
-
-pub fn encode_seal(proof: &Proof) -> anyhow::Result<Vec<u8>> {
-    match proof {
-        Proof::ZKVMReceipt(receipt) => risc0_ethereum_contracts::encode_seal(receipt),
-        Proof::BoundlessSeal(seal, _) => Ok(seal.clone()),
-        Proof::SetBuilderReceipt(..) => unimplemented!(),
-    }
-}
-
-pub fn derive_set_builder_receipt(proof: &Proof) -> anyhow::Result<Proof> {
-    let Proof::BoundlessSeal(_seal, _journal) = proof else {
-        bail!("Expected Proof::BoundlessSeal instance");
-    };
-
-    // todo: wait for spec on how boundless will provide the seal
-    todo!()
-    // let seal = if let Ok(seal) = risc0_groth16::Seal::from_vec(&encoded_seal) {
-    //     seal
-    // } else {
-    //     // todo: verify inclusion proof
-    //     // todo: extract groth16 seal
-    //     todo!()
-    // };
-    // // todo: create claim digest
-    // // todo: get verifier parameters
-    // // todo: create and verify groth16 receipt
-    //
-    // let n = encoded_seal.len() - 256;
-    // Groth16Receipt::new(
-    //     encoded_seal[n..].to_vec(),
-    //     MaybePruned::Pruned(journal_digest),
-    //     *verifying_params.get_or_insert_with(|| {
-    //         Groth16ReceiptVerifierParameters::default().digest()
-    //     }),
-    // )
-    // .verify_integrity()
-    // .expect("Failed to verify Groth16Receipt for {journal_digest}.");
-}
 
 pub fn proof_file_name(proof_journal: &ProofJournal) -> String {
     let version = risc0_zkvm::get_version().unwrap();
@@ -81,7 +43,7 @@ pub fn proof_file_name(proof_journal: &ProofJournal) -> String {
     format!("risc0-{version}-{file_name}.{suffix}")
 }
 
-pub async fn read_proof_file(proof_file_name: &str) -> anyhow::Result<Proof> {
+pub async fn read_proof_file(proof_file_name: &str) -> anyhow::Result<Receipt> {
     // Read receipt file
     if !Path::new(proof_file_name).exists() {
         bail!("Proof file {proof_file_name} not found.");
@@ -96,7 +58,7 @@ pub async fn read_proof_file(proof_file_name: &str) -> anyhow::Result<Proof> {
         .context(format!(
             "Failed to read proof file {proof_file_name} data until end."
         ))?;
-    bincode::deserialize::<Proof>(&proof_data).context(format!(
+    bincode::deserialize::<Receipt>(&proof_data).context(format!(
         "Failed to deserialize proof file {proof_file_name} data with bincode"
     ))
 }

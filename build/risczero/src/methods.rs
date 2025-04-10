@@ -1,3 +1,3 @@
-pub const KAILUA_FPVM_ELF: &[u8] = include_bytes!("./kailua-fpvm");
-pub const KAILUA_FPVM_ID: [u32; 8] = [1490733781, 547429877, 3410896003, 2838023088, 240337706, 1238432505, 2509858513, 3503181551];
-pub const KAILUA_FPVM_PATH: &str = "./kailua-fpvm";
+pub const KAILUA_FPVM_ELF: &[u8] = include_bytes!("./kailua-fpvm.bin");
+pub const KAILUA_FPVM_PATH: &str = "./kailua-fpvm.bin";
+pub const KAILUA_FPVM_ID: [u32; 8] = [3230645044, 1759221641, 676022343, 568275866, 2719213129, 3276352547, 3702661438, 2744487880];

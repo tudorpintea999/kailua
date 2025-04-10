@@ -19,11 +19,9 @@ use risc0_zkvm::sha::{Impl as SHA2, Sha256};
 use std::fmt::Debug;
 
 pub const CONTROL_ROOT: B256 =
-    b256!("8cdad9242664be3112aba377c5425a4df735eb1c6966472b561d2855932c0469");
+    b256!("539032186827b06719244873b17b2d4c122e2d02cfb1994fe958b2523b844576");
 pub const BN254_CONTROL_ID: B256 =
     b256!("04446e66d300eb7fb45c9726bb53c793dda407a62e9601618bb43c5c14657ac0");
-pub const SET_BUILDER_ID: B256 =
-    b256!("744cca56cde6933dea72752c78b4a6ca894ed620e8af6437ab05fad53bcec40a");
 
 pub fn safe_default<V: Debug + Eq>(opt: Option<V>, default: V) -> anyhow::Result<V> {
     if let Some(v) = opt {
@@ -89,58 +87,53 @@ pub fn config_hash(rollup_config: &RollupConfig) -> anyhow::Result<[u8; 32]> {
         rollup_config.l1_chain_id.to_be_bytes().as_slice(),
         rollup_config.l2_chain_id.to_be_bytes().as_slice(),
         rollup_config
-            .base_fee_params
-            .max_change_denominator
+            .chain_op_config
+            .eip1559_denominator
             .to_be_bytes()
             .as_slice(),
         rollup_config
-            .base_fee_params
-            .elasticity_multiplier
+            .chain_op_config
+            .eip1559_elasticity
             .to_be_bytes()
             .as_slice(),
         rollup_config
-            .canyon_base_fee_params
-            .max_change_denominator
+            .chain_op_config
+            .eip1559_denominator_canyon
             .to_be_bytes()
             .as_slice(),
-        rollup_config
-            .canyon_base_fee_params
-            .elasticity_multiplier
-            .to_be_bytes()
-            .as_slice(),
-        safe_default(rollup_config.regolith_time, u64::MAX)
+        safe_default(rollup_config.hardforks.regolith_time, u64::MAX)
             .context("regolith_time")?
             .to_be_bytes()
             .as_slice(),
-        safe_default(rollup_config.canyon_time, u64::MAX)
+        safe_default(rollup_config.hardforks.canyon_time, u64::MAX)
             .context("canyon_time")?
             .to_be_bytes()
             .as_slice(),
-        safe_default(rollup_config.delta_time, u64::MAX)
+        safe_default(rollup_config.hardforks.delta_time, u64::MAX)
             .context("delta_time")?
             .to_be_bytes()
             .as_slice(),
-        safe_default(rollup_config.ecotone_time, u64::MAX)
+        safe_default(rollup_config.hardforks.ecotone_time, u64::MAX)
             .context("ecotone_time")?
             .to_be_bytes()
             .as_slice(),
-        safe_default(rollup_config.fjord_time, u64::MAX)
+        safe_default(rollup_config.hardforks.fjord_time, u64::MAX)
             .context("fjord_time")?
             .to_be_bytes()
             .as_slice(),
-        safe_default(rollup_config.granite_time, u64::MAX)
+        safe_default(rollup_config.hardforks.granite_time, u64::MAX)
             .context("granite_time")?
             .to_be_bytes()
             .as_slice(),
-        safe_default(rollup_config.holocene_time, u64::MAX)
+        safe_default(rollup_config.hardforks.holocene_time, u64::MAX)
             .context("holocene_time")?
             .to_be_bytes()
             .as_slice(),
-        safe_default(rollup_config.isthmus_time, u64::MAX)
+        safe_default(rollup_config.hardforks.isthmus_time, u64::MAX)
             .context("isthmus_time")?
             .to_be_bytes()
             .as_slice(),
-        safe_default(rollup_config.interop_time, u64::MAX)
+        safe_default(rollup_config.hardforks.interop_time, u64::MAX)
             .context("interop_time")?
             .to_be_bytes()
             .as_slice(),
