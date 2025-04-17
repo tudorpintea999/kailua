@@ -1,4 +1,4 @@
-// Copyright 2024 RISC Zero, Inc.
+// Copyright 2024, 2025 RISC Zero, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -42,7 +42,7 @@ contract KailuaTreasury is KailuaTournament, IKailuaTreasury {
         uint256 _proposalOutputCount,
         uint256 _outputBlockSpan,
         GameType _gameType,
-        IDisputeGameFactory _disputeGameFactory,
+        OptimismPortal2 _optimismPortal,
         Claim _rootClaim,
         uint64 _l2BlockNumber
     )
@@ -54,7 +54,7 @@ contract KailuaTreasury is KailuaTournament, IKailuaTreasury {
             _proposalOutputCount,
             _outputBlockSpan,
             _gameType,
-            _disputeGameFactory
+            _optimismPortal
         )
     {
         ROOT_CLAIM = _rootClaim;
@@ -349,7 +349,7 @@ contract KailuaTreasury is KailuaTournament, IKailuaTreasury {
         if (vanguard != address(0x0) && vanguard != msg.sender) {
             // The proposer may only counter the vanguard during the advantage time
             KailuaTournament proposalParent = tournament.parentGame();
-            if (proposalParent.childCount() == 0) {
+            if (proposalParent.childCount() == 1) {
                 // Count the advantage clock since proposal was possible
                 uint64 elapsedAdvantage = uint64(block.timestamp - tournament.minCreationTime().raw());
                 if (elapsedAdvantage < vanguardAdvantage.raw()) {
