@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::signer::{DeployerSignerArgs, GuardianSignerArgs, OwnerSignerArgs};
 use crate::stall::Stall;
-use crate::transact::Transact;
+use crate::transact::signer::{DeployerSignerArgs, GuardianSignerArgs, OwnerSignerArgs};
+use crate::transact::{Transact, TransactArgs};
 use crate::{retry_with_context, KAILUA_GAME_TYPE};
 use alloy::network::{Ethereum, Network, ReceiptResponse, TxSigner};
 use alloy::primitives::{Address, Bytes, Uint, U256};
-use alloy::providers::{Provider, ProviderBuilder, RootProvider};
+use alloy::providers::{Provider, RootProvider};
 use alloy::sol_types::SolValue;
 use anyhow::{anyhow, bail, Context};
 use kailua_build::KAILUA_FPVM_ID;
@@ -47,6 +47,10 @@ pub struct FastTrackArgs {
     /// Address of the ethereum rpc endpoint to use (eth namespace required)
     #[clap(long, env)]
     pub eth_rpc_url: String,
+
+    /// Transaction publication configuration
+    #[clap(flatten)]
+    pub txn_args: TransactArgs,
 
     /// The l2 block number to start sequencing since
     #[clap(long, env)]
@@ -137,7 +141,9 @@ pub async fn fast_track(args: FastTrackArgs) -> anyhow::Result<()> {
         "OwnerSignerArgs::wallet",
         args.owner_signer.wallet(Some(config.l1_chain_id))
     )?;
-    let owner_provider = ProviderBuilder::new()
+    let owner_provider = args
+        .txn_args
+        .premium_provider::<Ethereum>()
         .wallet(&owner_wallet)
         .on_http(args.eth_rpc_url.as_str().try_into()?);
 
@@ -179,7 +185,9 @@ pub async fn fast_track(args: FastTrackArgs) -> anyhow::Result<()> {
         "DeployerSignerArgs::wallet",
         args.deployer_signer.wallet(Some(config.l1_chain_id))
     )?;
-    let deployer_provider = ProviderBuilder::new()
+    let deployer_provider = args
+        .txn_args
+        .premium_provider::<Ethereum>()
         .wallet(&deployer_wallet)
         .on_http(args.eth_rpc_url.as_str().try_into()?);
 
@@ -230,7 +238,7 @@ pub async fn fast_track(args: FastTrackArgs) -> anyhow::Result<()> {
         context,
         tracer,
         "DisputeGameFactory::setImplementation",
-        crate::exec_safe_txn(
+        crate::transact::safe::exec_safe_txn(
             dispute_game_factory.setImplementation(KAILUA_GAME_TYPE, kailua_treasury_impl_addr),
             &factory_owner_safe,
             owner_address,
@@ -257,7 +265,7 @@ pub async fn fast_track(args: FastTrackArgs) -> anyhow::Result<()> {
             context,
             tracer,
             "DisputeGameFactory::setInitBond",
-            crate::exec_safe_txn(
+            crate::transact::safe::exec_safe_txn(
                 dispute_game_factory.setInitBond(KAILUA_GAME_TYPE, U256::ZERO),
                 &factory_owner_safe,
                 owner_address,
@@ -310,7 +318,7 @@ pub async fn fast_track(args: FastTrackArgs) -> anyhow::Result<()> {
             context,
             tracer,
             "KailuaTreasury::resolve",
-            crate::exec_safe_txn(
+            crate::transact::safe::exec_safe_txn(
                 kailua_treasury_instance.resolve(),
                 &factory_owner_safe,
                 owner_address,
@@ -330,7 +338,7 @@ pub async fn fast_track(args: FastTrackArgs) -> anyhow::Result<()> {
         context,
         tracer,
         "KailuaTreasury::setParticipationBond",
-        crate::exec_safe_txn(
+        crate::transact::safe::exec_safe_txn(
             kailua_treasury_implementation.setParticipationBond(bond_value),
             &factory_owner_safe,
             owner_address,
@@ -373,7 +381,7 @@ pub async fn fast_track(args: FastTrackArgs) -> anyhow::Result<()> {
         context,
         tracer,
         "DisputeGameFactory::setImplementation",
-        crate::exec_safe_txn(
+        crate::transact::safe::exec_safe_txn(
             dispute_game_factory
                 .setImplementation(KAILUA_GAME_TYPE, *kailua_game_contract.address()),
             &factory_owner_safe,
@@ -391,7 +399,7 @@ pub async fn fast_track(args: FastTrackArgs) -> anyhow::Result<()> {
             context,
             tracer,
             "KailuaTreasury::assignVanguard",
-            crate::exec_safe_txn(
+            crate::transact::safe::exec_safe_txn(
                 kailua_treasury_implementation.assignVanguard(vanguard_address, vanguard_advantage),
                 &factory_owner_safe,
                 owner_address,
@@ -412,7 +420,9 @@ pub async fn fast_track(args: FastTrackArgs) -> anyhow::Result<()> {
                 .wallet(Some(config.l1_chain_id))
         )?;
         let guardian_address = guardian_wallet.default_signer().address();
-        let guardian_provider = ProviderBuilder::new()
+        let guardian_provider = args
+            .txn_args
+            .premium_provider::<Ethereum>()
             .wallet(&guardian_wallet)
             .on_http(args.eth_rpc_url.as_str().try_into()?);
         let optimism_portal = OptimismPortal2::new(portal_address, &guardian_provider);

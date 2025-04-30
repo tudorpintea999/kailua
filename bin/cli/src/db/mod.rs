@@ -18,8 +18,8 @@ pub mod proposal;
 pub mod state;
 pub mod treasury;
 
-use crate::provider::BlobProvider;
 use crate::stall::Stall;
+use crate::transact::blob::BlobProvider;
 use crate::KAILUA_GAME_TYPE;
 use alloy::network::Network;
 use alloy::primitives::{Address, U256};
@@ -110,8 +110,7 @@ impl KailuaDB {
             .await
             .gameCount_
             .to();
-        let mut proposals =
-            Vec::with_capacity((game_count - self.state.next_factory_index) as usize);
+        let mut proposals = Vec::new();
         while self.state.next_factory_index < game_count {
             let proposal = match self.get_local_proposal(&self.state.next_factory_index) {
                 Some(proposal) => {

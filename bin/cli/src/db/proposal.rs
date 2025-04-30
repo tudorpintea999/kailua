@@ -1,9 +1,10 @@
 use crate::db::config::Config;
 use crate::db::fault::Fault;
-use crate::provider::{blob_fe_proof, blob_sidecar, get_block, BlobProvider};
 use crate::retry_with_context;
 use crate::stall::Stall;
-use crate::transact::Transact;
+use crate::transact::blob::{blob_fe_proof, blob_sidecar, BlobProvider};
+use crate::transact::rpc::get_block;
+use crate::transact::{Transact, TransactArgs};
 use alloy::consensus::{Blob, BlobTransactionSidecar, BlockHeader};
 use alloy::eips::eip4844::FIELD_ELEMENTS_PER_BLOB;
 use alloy::eips::BlockNumberOrTag;
@@ -26,6 +27,7 @@ use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::future::IntoFuture;
 use std::iter::repeat;
+use std::time::Duration;
 use tracing::{error, info};
 
 pub const ELIMINATIONS_LIMIT: u64 = 128;
@@ -526,6 +528,7 @@ impl Proposal {
     pub async fn resolve<P: Provider<N>, N: Network>(
         &self,
         provider: P,
+        txn_args: &TransactArgs,
     ) -> anyhow::Result<N::ReceiptResponse> {
         let tracer = tracer("kailua");
         let context = opentelemetry::Context::current_with_span(tracer.start("Proposal::resolve"));
@@ -560,7 +563,11 @@ impl Proposal {
             info!("Eliminating {ELIMINATIONS_LIMIT} opponents before resolution.");
             let receipt = parent_tournament_instance
                 .pruneChildren(U256::from(ELIMINATIONS_LIMIT))
-                .transact_with_context(context.clone(), "KailuaTournament::pruneChildren")
+                .timed_transact_with_context(
+                    context.clone(),
+                    "KailuaTournament::pruneChildren",
+                    Some(Duration::from_secs(txn_args.txn_timeout)),
+                )
                 .await
                 .context("KailuaTournament::pruneChildren")?;
             info!(
@@ -572,7 +579,11 @@ impl Proposal {
         // Issue resolution call
         let receipt = contract_instance
             .resolve()
-            .transact_with_context(context.clone(), "KailuaTournament::resolve")
+            .timed_transact_with_context(
+                context.clone(),
+                "KailuaTournament::resolve",
+                Some(Duration::from_secs(txn_args.txn_timeout)),
+            )
             .await
             .context("KailuaTournament::resolve")?;
         info!("KailuaTournament::resolve: {} gas", receipt.gas_used());
