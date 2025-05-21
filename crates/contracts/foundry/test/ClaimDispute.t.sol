@@ -308,6 +308,8 @@ contract ClaimDisputeTest is KailuaTest {
 
         // Resolve honest proposal
         proposal_256_0.resolve();
+        vm.expectRevert(GameNotInProgress.selector);
+        proposal_256_0.getChallengerDuration(block.timestamp);
 
         // Reject output fault proof after resolution
         bytes32 parentRoot = proposal_128_0.rootClaim().raw();

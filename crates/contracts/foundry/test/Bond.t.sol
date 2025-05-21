@@ -153,7 +153,7 @@ contract BondTest is KailuaTest {
 
         vm.deal(address(0x01), 1000);
         vm.startPrank(address(0x01));
-        KailuaTournament proposal_128_1 = treasury.propose{value: 987}(
+        treasury.propose{value: 987}(
             Claim.wrap(0x0001010000010100000010100000101000001010000010100000010100000101),
             abi.encodePacked(uint64(128), anchorIndex, uint64(1))
         );
@@ -201,7 +201,7 @@ contract BondTest is KailuaTest {
 
         vm.deal(address(0x01), 1000);
         vm.startPrank(address(0x01));
-        KailuaTournament proposal_128_1 = treasury.propose{value: 987}(
+        treasury.propose{value: 987}(
             Claim.wrap(0x0001010000010100000010100000101000001010000010100000010100000100),
             abi.encodePacked(uint64(128), anchorIndex, uint64(0))
         );
