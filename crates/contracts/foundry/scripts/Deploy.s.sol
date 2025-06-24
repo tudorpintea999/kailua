@@ -21,8 +21,8 @@ contract DeployScript is Script {
     bytes32 controlId = vm.envBytes32("CONTROL_ID");
     IRiscZeroVerifier riscZeroVerifier = IRiscZeroVerifier(vm.envAddress("RISC_ZERO_VERIFIER"));
     bytes32 rollupConfigHash = vm.envBytes32("ROLLUP_CONFIG_HASH");
-    uint256 proposalOutputCount = vm.envUint("PROPOSAL_OUTPUT_COUNT");
-    uint256 outputBlockSpan = vm.envUint("OUTPUT_BLOCK_SPAN");
+    uint64 proposalOutputCount = uint64(vm.envUint("PROPOSAL_OUTPUT_COUNT"));
+    uint64 outputBlockSpan = uint64(vm.envUint("OUTPUT_BLOCK_SPAN"));
     GameType gameType = GameType.wrap(uint32(vm.envUint("KAILUA_GAME_TYPE")));
     IDisputeGameFactory dgf = IDisputeGameFactory(vm.envAddress("DISPUTE_GAME_FACTORY"));
     Claim outputRootClaim = Claim.wrap(vm.envBytes32("OUTPUT_ROOT_CLAIM"));
