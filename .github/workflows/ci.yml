@@ -70,19 +70,32 @@ jobs:
           RUSTFLAGS: -Dwarnings
 
   cargo-test:
-    needs:
-      - cargo-clippy
-      - cargo-llvm-cov
     strategy:
       matrix:
         include:
           - os: Linux
             feature: default
-    runs-on: [ self-hosted, prod, "${{ matrix.os }}" ]
+    runs-on: [ self-hosted, prod, docker, "${{ matrix.os }}" ]
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+      - name: Fetch optimism devnet
+        uses: actions/checkout@v4
+        with:
+          repository: 'ethereum-optimism/optimism'
+          ref: 'v1.9.1'
+          path: 'optimism'
+          submodules: recursive
+          fetch-depth: '1'
+      - name: Install Go 1.22.6
+        uses: actions/setup-go@v5
+        with:
+          go-version: '=1.22.6'
+      - name: Install Python 3.13.1
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13.1'
       - uses: risc0/risc0/.github/actions/rustup@main
       - name: Install svm-rs
         uses: risc0/cargo-install@b9307573043522ab0d3e3be64a51763b765b52a4
@@ -92,9 +105,11 @@ jobs:
         continue-on-error: true
         run: svm install $SOLC_VERSION
       - run: svm use $SOLC_VERSION
-      - uses: foundry-rs/foundry-toolchain@v1
+#      - uses: foundry-rs/foundry-toolchain@v1
+      - run: curl -L https://foundry.paradigm.xyz | bash && echo "$HOME/.foundry/bin" >> "$GITHUB_PATH"
+      - run: foundryup -b v1.0.0
       - name: cargo test kailua
-        run: cargo test --locked --workspace --all --all-targets -F devnet -- --test-threads 1
+        run: cargo test --locked --workspace --all --all-targets -F devnet -F prove -- --test-threads 1
 
   cargo-llvm-cov:
     strategy:
