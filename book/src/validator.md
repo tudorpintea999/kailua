@@ -5,7 +5,7 @@ proof to settle the dispute between them.
 
 ```admonish note
 The Kailua validator agent requires access to an archive `op-geth` rollup node to retrieve data during proof generation.
-Node software other than `op-geth` is not as reliable for the necessary `debug` namespace rpc calls.
+Node software other than `op-geth` is not as reliable for the necessary `debug` namespace RPC calls.
 ```
 
 ## Usage
@@ -30,7 +30,7 @@ All the parameters in this section can be provided as environment variables.
 
 ### Endpoints
 The first four arguments specify the endpoints that the validator should use to generate fault proofs:
-* `eth-rpc-url`: The parent chain (ethereum) endpoint for reading proposals and publishing proofs.
+* `eth-rpc-url`: The parent chain (Ethereum) endpoint for reading proposals and publishing proofs.
 * `beacon-rpc-url`: The DA layer (eth-beacon chain) endpoint for retrieving rollup data.
 * `op-geth-url`: The (archive) rollup `op-geth` endpoint to read fault proving witness data from.
 * `op-node-url`: The rollup `op-node` endpoint to read sequencing proposals from.
@@ -50,7 +50,7 @@ Defaults to the path of the invoked `kailua-cli` executable.
 The validator requires a funded wallet to be able to publish fault proofs on chain, and an (optional) alternative address
 to direct fault proof submission payouts towards
 * `validator-key`: The private key for the validator wallet.
-* `payout-recipient-address`: The ethereum address to use as the recipient of fault proof payouts.
+* `payout-recipient-address`: The Ethereum address to use as the recipient of fault proof payouts.
 
 ```admonish tip
 `validator-key` can be replaced with the corresponding AWS/GCP parameters as described [here](upgrade.md#kms-support).
@@ -66,7 +66,7 @@ Running `kailua-cli validate` should monitor your rollup for any disputes and ge
 ```
 
 ### Transactions
-You can control transaction publication through the two following parameters:
+You can control transaction publication through the following two parameters:
 * `txn-timeout`: A timeout in seconds for transaction broadcast (default 120)
 * `exec-gas-premium`: An added premium percentage to estimated execution gas fees (Default 25)
 
